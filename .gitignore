@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite
+
+# Environment
+.env
+*.env
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup/temp files
+*.bak
+*.tmp
+*.swp
+*~
+
+# Secrets (extra safety)
+*.key
+*.pem
+secrets.json
+credentials.json
+vapid_keys.json
+
+# Audio/media (if any)
+*.mp3
+*.wav
+*.opus
+*.ogg
+
+# Data directory
+data/
+
+# Node (if applicable)
+node_modules/

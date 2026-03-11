@@ -1,0 +1,3539 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>Delega</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            // Refined dark palette - more sophisticated
+            'delega-bg': '#1a1a1a',
+            'delega-surface': '#202020',
+            'delega-sidebar': '#1e1e1e',
+            'delega-card': '#262626',
+            'delega-card-hover': '#2d2d2d',
+            'delega-border': 'rgba(255,255,255,0.06)',
+            'delega-border-subtle': 'rgba(255,255,255,0.04)',
+            'delega-muted': '#8b8b8b',
+            'delega-text': '#e8e8e8',
+            'delega-text-secondary': '#a3a3a3',
+            // Accent color
+            'delega-accent': '#00d4ff',
+            'delega-accent-hover': '#00a8cc',
+            // Subtle green for completion
+            'delega-success': '#058527',
+            // Priority colors - refined
+            'priority-1': '#808080',
+            'priority-2': '#4073ff',
+            'priority-3': '#eb8909',
+            'priority-4': '#d1453b',
+          },
+          fontFamily: {
+            'body': ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+            'display': ['Geist', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.1) transparent;
+    }
+
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+    body {
+      background: #1a1a1a;
+      color: #e8e8e8;
+      min-height: 100vh;
+      min-height: 100dvh;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Task item - clean rows */
+    .task-item {
+      background: transparent;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      padding-left: 15px;
+      margin: 0 -12px;
+      cursor: pointer;
+      transition: background-color 0.15s ease, border-color 0.2s ease;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      border-left: 3px solid transparent;
+    }
+    .task-item:last-child {
+      border-bottom: none;
+    }
+    .task-item:hover {
+      background: rgba(255,255,255,0.04);
+      border-left-color: rgba(0,212,255,0.4);
+    }
+    .task-item:active {
+      background: rgba(255,255,255,0.06);
+    }
+
+    /* Task completion transition */
+    .task-item .task-text {
+      transition: opacity 0.3s ease, color 0.3s ease;
+      text-decoration-line: none;
+      text-decoration-thickness: 2px;
+    }
+    .task-item.completed-anim .task-text {
+      text-decoration-line: line-through;
+      text-decoration-color: #666;
+    }
+
+    /* Task ID badge */
+    .task-id-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      color: #555;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 4px;
+      padding: 0 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+      font-family: 'Geist', monospace;
+      letter-spacing: 0.01em;
+    }
+
+    .task-item:hover .task-id-badge {
+      color: #777;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Priority indicator - subtle left accent */
+    .priority-1 { }
+    .priority-2 .priority-dot { background: #4073ff; }
+    .priority-3 .priority-dot { background: #eb8909; }
+    .priority-4 .priority-dot { background: #d1453b; }
+
+    /* Checkbox */
+    .delega-checkbox {
+      width: 18px;
+      height: 18px;
+      border: 1.5px solid #5f5f5f;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+      background: transparent;
+    }
+    .delega-checkbox:hover {
+      border-color: #888;
+      background: rgba(255,255,255,0.03);
+    }
+    .delega-checkbox.priority-2 { border-color: #4073ff; }
+    .delega-checkbox.priority-3 { border-color: #eb8909; }
+    .delega-checkbox.priority-4 { border-color: #d1453b; }
+    .delega-checkbox.checked {
+      background: #058527;
+      border-color: #058527;
+      animation: checkPulse 0.25s ease;
+    }
+    .delega-checkbox.checked svg {
+      opacity: 1;
+    }
+    .delega-checkbox svg {
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    }
+    .delega-checkbox:hover svg {
+      opacity: 0.4;
+    }
+    .delega-checkbox.priority-4:hover { box-shadow: 0 0 8px rgba(209,69,59,0.3); }
+    .delega-checkbox.priority-3:hover { box-shadow: 0 0 8px rgba(235,137,9,0.3); }
+    .delega-checkbox.priority-2:hover { box-shadow: 0 0 8px rgba(64,115,255,0.3); }
+
+    @keyframes checkPulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+
+    /* Tab styling - minimal underline */
+    .delega-tab {
+      position: relative;
+      padding: 10px 0;
+      color: #8b8b8b;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color 0.15s ease;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .delega-tab.active {
+      color: #e8e8e8;
+      border-bottom-color: #00d4ff;
+    }
+    .delega-tab:hover:not(.active) {
+      color: #b3b3b3;
+    }
+
+    /* Input styling - subtle and clean */
+    .delega-input {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #e8e8e8;
+      font-size: 14px;
+      width: 100%;
+      transition: all 0.15s ease;
+    }
+    .delega-input:hover {
+      border-color: rgba(255,255,255,0.12);
+    }
+    .delega-input:focus {
+      outline: none;
+      border-color: rgba(0, 212, 255, 0.5);
+      background: rgba(255,255,255,0.06);
+    }
+    .delega-input::placeholder {
+      color: #666;
+    }
+
+    /* Button styling */
+    .delega-btn {
+      background: #00d4ff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .delega-btn:hover {
+      background: #00a8cc;
+      box-shadow: 0 0 16px rgba(0,212,255,0.25);
+    }
+    .delega-btn:active {
+      transform: scale(0.97);
+    }
+    .delega-btn:disabled {
+      background: #363636;
+      color: #666;
+      cursor: not-allowed;
+    }
+
+    .delega-btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: #e8e8e8;
+    }
+    .delega-btn-secondary:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    .delega-btn-danger {
+      background: rgba(209, 69, 59, 0.12);
+      color: #ff7066;
+    }
+    .delega-btn-danger:hover {
+      background: rgba(209, 69, 59, 0.2);
+    }
+
+    /* Card styling - subtle elevation */
+    .delega-card {
+      background: #262626;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+    }
+    .delega-card:hover {
+      border-color: rgba(255,255,255,0.1);
+    }
+
+    /* Animations - refined */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    .spinner { animation: spin 0.8s linear infinite; }
+    .fade-in { animation: fadeIn 0.2s ease-out; }
+    .slide-up { animation: slideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+
+    /* PWA safe areas */
+    .safe-top { padding-top: env(safe-area-inset-top); }
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+    /* Line clamp */
+    .line-clamp-1 {
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Modal backdrop */
+    .modal-backdrop {
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.75) 100%);
+      backdrop-filter: blur(8px);
+    }
+
+    /* Bottom sheet styling */
+    .bottom-sheet {
+      background: #262626;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .bottom-sheet::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 36px;
+      height: 4px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 2px;
+    }
+
+    /* Badge styles - compact */
+    .delega-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    /* Meta text styling */
+    .task-meta {
+      font-size: 12px;
+      color: #8b8b8b;
+    }
+    .task-meta-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Project tag */
+    .project-tag {
+      color: #8b8b8b;
+      font-size: 12px;
+    }
+    .project-tag:hover {
+      color: #b3b3b3;
+    }
+
+    /* Due date colors */
+    .due-overdue { color: #d1453b; font-weight: 600; }
+    .due-today { color: #058527; }
+    .due-upcoming { color: #8b8b8b; }
+
+    /* Section dividers for Today view */
+    .section-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px 6px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .section-divider .section-count {
+      font-weight: 400;
+      opacity: 0.6;
+    }
+
+    /* Focus ring for accessibility */
+    *:focus-visible {
+      outline: 2px solid rgba(0, 212, 255, 0.5);
+      outline-offset: 2px;
+    }
+
+    /* Quick defer buttons - text style */
+    .defer-btn {
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #8b8b8b;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .defer-btn:hover {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.1);
+      color: #b3b3b3;
+    }
+    .defer-btn.active {
+      background: rgba(0, 212, 255, 0.12);
+      border-color: rgba(0, 212, 255, 0.3);
+      color: #00d4ff;
+    }
+
+    /* Section header */
+    .section-header {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e8e8e8;
+      padding: 16px 0 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 4px;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: #666;
+    }
+    .empty-state-icon {
+      margin-bottom: 16px;
+      position: relative;
+      display: inline-block;
+    }
+    .empty-state-icon svg {
+      width: 56px;
+      height: 56px;
+      color: #00d4ff;
+      animation: emptyFloat 3s ease-in-out infinite;
+    }
+    .empty-state-icon::before {
+      content: '';
+      position: absolute;
+      inset: -12px;
+      background: radial-gradient(circle, rgba(0,212,255,0.1) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+    @keyframes emptyFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    .empty-state-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #8b8b8b;
+      margin-bottom: 4px;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .empty-state-text {
+      font-size: 13px;
+      color: #666;
+    }
+
+    /* Mobile bottom nav active dot indicator */
+    .mobile-nav-btn { position: relative; }
+    .mobile-nav-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 4px;
+      height: 4px;
+      background: #00d4ff;
+      border-radius: 50%;
+      opacity: 1;
+      transition: opacity 0.2s ease;
+    }
+
+    /* Sort dropdown styling */
+    .delega-sort-select {
+      appearance: none;
+      -webkit-appearance: none;
+      padding: 6px 28px 6px 10px;
+      background: rgba(255,255,255,0.04) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%238b8b8b' viewBox='0 0 24 24'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E") no-repeat right 8px center;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      font-size: 12px;
+      color: #8b8b8b;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .delega-sort-select:hover {
+      border-color: rgba(255,255,255,0.15);
+      background-color: rgba(255,255,255,0.06);
+    }
+    .delega-sort-select:focus {
+      outline: none;
+      border-color: rgba(0,212,255,0.45);
+    }
+
+    /* Sidebar add-task button icon rotation on hover */
+    .sidebar-add-btn svg {
+      transition: transform 0.2s ease;
+    }
+    .sidebar-add-btn:hover svg {
+      transform: rotate(90deg);
+    }
+
+    /* Priority selector in edit */
+    .priority-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      color: #8b8b8b;
+    }
+    .priority-btn:hover {
+      background: rgba(255,255,255,0.08);
+    }
+    .priority-btn.active {
+      color: white;
+    }
+    .priority-btn.p1.active { background: #666; border-color: #666; }
+    .priority-btn.p2.active { background: #4073ff; border-color: #4073ff; }
+    .priority-btn.p3.active { background: #eb8909; border-color: #eb8909; }
+    .priority-btn.p4.active { background: #d1453b; border-color: #d1453b; }
+
+    /* Label tag */
+    .label-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 4px;
+      font-size: 12px;
+      color: #b3b3b3;
+    }
+    .label-tag button {
+      opacity: 0.5;
+      transition: opacity 0.15s;
+    }
+    .label-tag:hover button {
+      opacity: 1;
+    }
+
+    /* Subtask item */
+    .subtask-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+    .subtask-item:hover {
+      background: rgba(255,255,255,0.04);
+    }
+
+    /* Comment item */
+    .comment-item {
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.02);
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+
+
+    /* Desktop Edit Dialog - Two Panel Layout */
+    @keyframes dialogScale {
+      from { opacity: 0; transform: scale(0.95) translateY(8px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .dialog-enter {
+      animation: dialogScale 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    .desktop-edit-panel {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      min-height: 0;
+      max-height: calc(90vh - 110px);
+    }
+
+    .desktop-edit-left {
+      padding: 20px 24px;
+      overflow-y: auto;
+      border-right: 1px solid rgba(255,255,255,0.05);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .desktop-edit-right {
+      padding: 20px;
+      overflow-y: auto;
+      background: rgba(255,255,255,0.015);
+    }
+
+    .desktop-task-name {
+      background: transparent;
+      border: none;
+      color: #e8e8e8;
+      font-size: 18px;
+      font-weight: 600;
+      width: 100%;
+      outline: none;
+      padding: 0;
+      line-height: 1.35;
+      caret-color: #00d4ff;
+      letter-spacing: -0.01em;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .desktop-task-name::placeholder {
+      color: #4a4a4a;
+      font-weight: 500;
+    }
+
+    .desktop-task-desc {
+      background: transparent;
+      border: none;
+      color: #a3a3a3;
+      font-size: 14px;
+      width: 100%;
+      outline: none;
+      padding: 0;
+      margin-top: 10px;
+      resize: none;
+      line-height: 1.6;
+      caret-color: #00d4ff;
+      min-height: 200px;
+      flex: 1;
+    }
+    .desktop-task-desc::placeholder {
+      color: #3d3d3d;
+    }
+
+    .edit-section-header {
+      font-size: 11px;
+      font-weight: 600;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding-bottom: 8px;
+      margin-top: 20px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .meta-field {
+      margin-bottom: 16px;
+    }
+    .meta-field:last-child {
+      margin-bottom: 0;
+    }
+
+    .meta-field-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .compact-input {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: #e8e8e8;
+      font-size: 13px;
+      width: 100%;
+      transition: all 0.15s ease;
+    }
+    .compact-input:hover {
+      border-color: rgba(255,255,255,0.12);
+    }
+    .compact-input:focus {
+      outline: none;
+      border-color: rgba(0, 212, 255, 0.45);
+      background: rgba(255,255,255,0.06);
+    }
+
+    /* Desktop accordion triggers */
+    .accordion-trigger {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 0;
+      cursor: pointer;
+      transition: color 0.15s ease;
+      color: #555;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+    .accordion-trigger:hover {
+      color: #888;
+    }
+    .accordion-trigger .acc-chevron {
+      width: 14px;
+      height: 14px;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }
+    .accordion-trigger .acc-chevron.open {
+      transform: rotate(90deg);
+    }
+    .accordion-trigger .acc-count {
+      font-size: 11px;
+      color: #444;
+      font-weight: 400;
+    }
+    .accordion-body {
+      overflow: hidden;
+    }
+
+    /* Meta divider in right panel */
+    .meta-divider {
+      height: 1px;
+      background: rgba(255,255,255,0.05);
+      margin: 16px 0;
+    }
+    /* Mobile Edit Modal */
+    .mobile-edit-modal {
+      background: #1e1e1e;
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+
+    .edit-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .edit-row:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    .edit-row:active {
+      background: rgba(255,255,255,0.05);
+    }
+    .edit-row-icon {
+      width: 22px;
+      height: 22px;
+      color: #666;
+      flex-shrink: 0;
+    }
+    .edit-row-content {
+      flex: 1;
+      min-width: 0;
+    }
+    .edit-row-label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 2px;
+    }
+    .edit-row-value {
+      font-size: 14px;
+      color: #b3b3b3;
+    }
+    .edit-row-value.has-value {
+      color: #e8e8e8;
+    }
+    .edit-row-value.priority-4 { color: #d1453b; }
+    .edit-row-value.priority-3 { color: #eb8909; }
+    .edit-row-value.priority-2 { color: #4073ff; }
+    .edit-row-chevron {
+      width: 16px;
+      height: 16px;
+      color: #444;
+      flex-shrink: 0;
+    }
+
+    /* Task title section */
+    .edit-task-header {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .edit-task-title {
+      background: transparent;
+      border: none;
+      color: #e8e8e8;
+      font-size: 17px;
+      font-weight: 500;
+      width: 100%;
+      outline: none;
+      padding: 0;
+      line-height: 1.4;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .edit-task-title::placeholder {
+      color: #555;
+    }
+    .edit-task-desc {
+      background: transparent;
+      border: none;
+      color: #999;
+      font-size: 14px;
+      width: 100%;
+      outline: none;
+      padding: 0;
+      margin-top: 8px;
+      resize: none;
+      line-height: 1.5;
+    }
+    .edit-task-desc::placeholder {
+      color: #444;
+    }
+
+    /* Quick action pills */
+    .quick-pills {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .quick-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 20px;
+      font-size: 13px;
+      color: #999;
+      white-space: nowrap;
+      transition: all 0.12s ease;
+    }
+    .quick-pill:hover {
+      background: rgba(255,255,255,0.06);
+      color: #b3b3b3;
+    }
+    .quick-pill:active {
+      background: rgba(255,255,255,0.08);
+    }
+    .quick-pill.active {
+      background: rgba(0, 212, 255, 0.12);
+      border-color: rgba(0, 212, 255, 0.25);
+      color: #00d4ff;
+    }
+    .quick-pill svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Collapsible sections */
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .collapsible-header:hover {
+      background: rgba(255,255,255,0.02);
+    }
+    .collapsible-header h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #8b8b8b;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .collapsible-header .count {
+      font-size: 12px;
+      color: #666;
+      font-weight: 400;
+    }
+    .collapsible-chevron {
+      width: 18px;
+      height: 18px;
+      color: #555;
+      transition: transform 0.2s ease;
+    }
+    .collapsible-chevron.expanded {
+      transform: rotate(180deg);
+    }
+    .collapsible-content {
+      padding: 8px 16px 16px;
+    }
+
+    /* Bottom picker sheet */
+    .picker-sheet {
+      background: #262626;
+      border-top-left-radius: 16px;
+      border-top-right-radius: 16px;
+      max-height: 60vh;
+      overflow: hidden;
+    }
+    .picker-sheet::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 36px;
+      height: 4px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 2px;
+    }
+    .picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 16px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .picker-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e8e8e8;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .picker-option {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .picker-option:hover {
+      background: rgba(255,255,255,0.04);
+    }
+    .picker-option:active {
+      background: rgba(255,255,255,0.06);
+    }
+    .picker-option.selected {
+      background: rgba(0, 212, 255, 0.08);
+    }
+    .picker-option-icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .picker-option-text {
+      flex: 1;
+      font-size: 15px;
+      color: #e8e8e8;
+    }
+    .picker-option-check {
+      width: 18px;
+      height: 18px;
+      color: #00d4ff;
+    }
+
+    /* Comment input pinned */
+    .pinned-comment-input {
+      position: sticky;
+      bottom: 0;
+      background: #1e1e1e;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding: 12px 16px;
+    }
+    .pinned-comment-input input {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      padding: 10px 16px;
+      font-size: 14px;
+      color: #e8e8e8;
+      outline: none;
+    }
+    .pinned-comment-input input:focus {
+      border-color: rgba(0, 212, 255, 0.4);
+    }
+    .pinned-comment-input input::placeholder {
+      color: #555;
+    }
+
+    /* Form label */
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: #8b8b8b;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    /* Keyboard shortcut */
+    kbd {
+      display: inline-block;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-family: inherit;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 4px;
+      color: #b3b3b3;
+    }
+
+    /* Desktop Sidebar */
+    .desktop-sidebar {
+      width: 265px;
+      background: #1e1e1e;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      z-index: 50;
+      display: none;
+    }
+    @media (min-width: 768px) {
+      .desktop-sidebar { display: flex; flex-direction: column; }
+      .main-content { margin-left: 265px; }
+      .mobile-only { display: none !important; }
+    }
+    @media (max-width: 767px) {
+      .desktop-only { display: none !important; }
+    }
+
+    /* Sidebar nav item */
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      color: #b3b3b3;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border-left: 3px solid transparent;
+    }
+    .sidebar-nav-item:hover {
+      background: rgba(255,255,255,0.06);
+      color: #e8e8e8;
+    }
+    .sidebar-nav-item.active {
+      background: rgba(0, 212, 255, 0.12);
+      color: #00d4ff;
+      border-left-color: #00d4ff;
+      box-shadow: inset 3px 0 12px rgba(0,212,255,0.08);
+    }
+    .sidebar-nav-item svg {
+      width: 18px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+    .sidebar-nav-item .count {
+      margin-left: auto;
+      font-size: 12px;
+      color: #666;
+    }
+    .sidebar-nav-item.active .count {
+      color: rgba(0, 212, 255, 0.7);
+    }
+
+    /* Sidebar section header */
+    .sidebar-section-header {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 16px 12px 8px;
+    }
+
+    /* Sidebar project item */
+    .sidebar-project-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      color: #999;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border-left: 3px solid transparent;
+    }
+    .sidebar-project-item:hover {
+      background: rgba(255,255,255,0.04);
+      color: #b3b3b3;
+    }
+    .sidebar-project-item.active {
+      background: rgba(255,255,255,0.08);
+      color: #e8e8e8;
+      border-left-color: #00d4ff;
+    }
+    .sidebar-project-item .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sidebar-project-item .count {
+      margin-left: auto;
+      font-size: 11px;
+      color: #555;
+    }
+
+    /* View header */
+    .view-header {
+      padding: 24px 0 16px;
+    }
+    .view-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: #e8e8e8;
+      margin-bottom: 2px;
+      letter-spacing: -0.02em;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      position: relative;
+      display: inline-block;
+    }
+    .view-title::after {
+      content: '';
+      position: absolute;
+      bottom: -4px;
+      left: 0;
+      width: 40px;
+      height: 3px;
+      background: #00d4ff;
+      border-radius: 2px;
+    }
+    .view-subtitle {
+      font-size: 13px;
+      color: #666;
+    }
+
+    /* Inline task editor */
+    .inline-task-editor {
+      background: #262626;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .inline-task-editor:focus-within {
+      border-color: rgba(0, 212, 255, 0.4);
+    }
+    .inline-task-input {
+      background: transparent;
+      border: none;
+      color: #e8e8e8;
+      font-size: 14px;
+      width: 100%;
+      outline: none;
+      padding: 0;
+    }
+    .inline-task-input::placeholder {
+      color: #666;
+    }
+    .inline-task-desc {
+      background: transparent;
+      border: none;
+      color: #999;
+      font-size: 13px;
+      width: 100%;
+      outline: none;
+      padding: 0;
+      margin-top: 8px;
+      resize: none;
+    }
+    .inline-task-desc::placeholder {
+      color: #555;
+    }
+    .inline-action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      color: #999;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .inline-action-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: #b3b3b3;
+    }
+    .inline-action-btn.has-value {
+      background: rgba(0, 212, 255, 0.1);
+      color: #00d4ff;
+      border-color: rgba(0, 212, 255, 0.2);
+    }
+    .inline-action-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Add task trigger button (collapsed state) */
+    .add-task-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+      color: #666;
+      font-size: 14px;
+      cursor: pointer;
+      transition: color 0.15s ease;
+      border-bottom: 1px solid transparent;
+    }
+    .add-task-trigger:hover {
+      color: #00d4ff;
+    }
+    .add-task-trigger svg {
+      width: 18px;
+      height: 18px;
+    }
+  </style>
+</head>
+<body class="safe-top safe-bottom">
+  <div id="app" class="relative z-10">
+    <!-- Desktop Sidebar (visible on md+) -->
+    <aside class="desktop-sidebar">
+      <!-- Logo -->
+      <div class="px-4 py-4 flex items-center gap-2.5 border-b border-[rgba(255,255,255,0.06)]">
+        <div class="text-xl">⚡</div>
+        <span class="text-base font-semibold text-[#e8e8e8] font-display">Delega</span>
+      </div>
+
+      <!-- Add Task Button -->
+      <div class="px-3 pt-4 pb-2">
+        <button
+          @click="showInlineEditor = true; inlineTask = { content: '', description: '', due_date: null, priority: 1, project_id: null, labels: [] }"
+          class="sidebar-add-btn w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-[#00d4ff] hover:bg-[#00a8cc] text-white font-medium text-[13px] transition-colors"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+          </svg>
+          Add task
+        </button>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="px-2 py-2">
+        <button
+          @click="currentTab = 'inbox'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="['sidebar-nav-item w-full', currentTab === 'inbox' && filterProject === null && filterLabel === null ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+          </svg>
+          <span>Inbox</span>
+          <span class="count">{{ inboxCount }}</span>
+        </button>
+        <button
+          @click="currentTab = 'today'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="['sidebar-nav-item w-full', currentTab === 'today' && filterProject === null && filterLabel === null ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+          </svg>
+          <span>Today</span>
+          <span class="count">{{ tabs.find(t => t.id === 'today')?.count || 0 }}</span>
+        </button>
+        <button
+          @click="currentTab = 'upcoming'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="['sidebar-nav-item w-full', currentTab === 'upcoming' && filterProject === null && filterLabel === null ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+          </svg>
+          <span>Upcoming</span>
+          <span class="count">{{ tabs.find(t => t.id === 'upcoming')?.count || 0 }}</span>
+        </button>
+        <button
+          @click="currentTab = 'all'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="['sidebar-nav-item w-full', currentTab === 'all' && filterProject === null && filterLabel === null ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+          </svg>
+          <span>All Tasks</span>
+          <span class="count">{{ tabs.find(t => t.id === 'all')?.count || 0 }}</span>
+        </button>
+        <button
+          @click="currentTab = 'completed'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="['sidebar-nav-item w-full', currentTab === 'completed' && filterProject === null && filterLabel === null ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span>Completed</span>
+          <span class="count">{{ tabs.find(t => t.id === 'completed')?.count || 0 }}</span>
+        </button>
+      </nav>
+
+      <!-- Projects & Labels Section -->
+      <div class="flex-1 overflow-y-auto">
+        <div class="sidebar-section-header">My Projects</div>
+        <div class="px-2 pb-2">
+          <button
+            v-for="project in projects"
+            :key="project.id"
+            @click="filterProject = project.id; filterLabel = null; currentTab = 'all'"
+            :class="['sidebar-project-item w-full', filterProject === project.id && filterLabel === null ? 'active' : '']"
+          >
+            <span class="dot" :style="project.color ? {background: project.color} : {background: '#808080'}"></span>
+            <span class="flex-1 text-left truncate">{{ project.name }}</span>
+            <span class="count">{{ projectTaskCount(project.id) }}</span>
+          </button>
+        </div>
+
+        <button v-if="allLabels.length" @click="showLabels = !showLabels" class="sidebar-section-header w-full flex items-center justify-between cursor-pointer hover:text-[#999] transition-colors" style="border:none;background:none;padding-right:16px;">
+          <span>🏷️ Labels</span>
+          <svg :style="{ transform: showLabels ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" class="w-3 h-3 text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+        <div v-if="allLabels.length && showLabels" class="px-2 pb-4">
+          <button
+            v-for="label in allLabels"
+            :key="label"
+            @click="filterLabel = label; filterProject = null; currentTab = 'all'; loadTasks()"
+            :class="['sidebar-project-item w-full', filterLabel === label ? 'active' : '']"
+          >
+            <span class="text-[#00d4ff] text-[12px] font-medium" style="min-width: 14px;">@</span>
+            <span class="flex-1 text-left truncate">{{ label.replace('@', '') }}</span>
+            <span class="count">{{ labelTaskCount(label) }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Footer with notifications & help -->
+      <div class="px-3 py-3 border-t border-[rgba(255,255,255,0.06)] space-y-1">
+        <button
+          @click="showNotificationSettings = !showNotificationSettings"
+          class="sidebar-nav-item w-full text-[#666]"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+          </svg>
+          <span>Notifications</span>
+          <span v-if="pushSubscription" class="ml-auto text-[#058527] text-xs">●</span>
+        </button>
+        
+        <!-- Notification Settings Panel (inline in sidebar) -->
+        <div v-if="showNotificationSettings" class="bg-[rgba(255,255,255,0.02)] rounded-lg p-3 mt-2 space-y-3">
+          <!-- Not in PWA mode warning -->
+          <div v-if="!isStandalone" class="text-[12px] text-[#eb8909]">
+            <p>⚠️ Add Delega to Home Screen for push notifications on iOS.</p>
+          </div>
+          
+          <!-- Push not supported -->
+          <div v-else-if="!pushSupported" class="text-[12px] text-[#666]">
+            <p>❌ Push notifications not supported on this browser.</p>
+          </div>
+          
+          <!-- Permission denied -->
+          <div v-else-if="pushPermission === 'denied'" class="text-[12px] text-[#d1453b]">
+            <p>❌ Notifications blocked. Check browser/system settings.</p>
+          </div>
+          
+          <!-- Can subscribe -->
+          <div v-else-if="!pushSubscription" class="space-y-2">
+            <p class="text-[12px] text-[#999]">Enable notifications for task reminders.</p>
+            <button @click="subscribeToPush" class="w-full delega-btn text-[12px] py-2">
+              Enable Notifications
+            </button>
+          </div>
+          
+          <!-- Already subscribed -->
+          <div v-else class="space-y-2">
+            <p class="text-[12px] text-[#058527]">✓ Notifications enabled</p>
+            <div class="flex gap-2">
+              <button @click="sendTestNotification" class="flex-1 delega-btn delega-btn-secondary text-[11px] py-1.5">
+                Test
+              </button>
+              <button @click="unsubscribeFromPush" class="flex-1 delega-btn delega-btn-danger text-[11px] py-1.5">
+                Disable
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <button
+          @click="showHelp = true"
+          class="sidebar-nav-item w-full text-[#666]"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          <span>Keyboard shortcuts</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="main-content min-h-screen">
+
+      <!-- Refresh Indicator -->
+      <div v-if="isRefreshing" class="fixed top-4 left-1/2 -translate-x-1/2 z-30 fade-in md:left-[calc(265px+50%)] md:-translate-x-1/2">
+        <div class="bg-[#303030] px-3 py-1.5 rounded-full flex items-center gap-2 text-[#b3b3b3] text-xs font-medium shadow-lg">
+          <svg class="w-3 h-3 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          Syncing
+        </div>
+      </div>
+
+      <!-- Task List -->
+      <main
+        class="px-4 md:px-8 lg:px-12 py-3 pb-24 md:pb-8 max-w-4xl"
+        @touchstart="handleTouchStart"
+        @touchmove="handleTouchMove"
+        @touchend="handleTouchEnd"
+      >
+        <!-- View Header (desktop) -->
+        <div class="view-header desktop-only">
+          <h1 class="view-title">{{ currentViewTitle }}</h1>
+          <p class="view-subtitle">{{ currentViewSubtitle }}</p>
+        </div>
+
+        <!-- Desktop Sort -->
+        <div class="desktop-only flex items-center justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <span v-if="stats.overdue > 0" class="text-xs font-medium text-[#d1453b] bg-[rgba(209,69,59,0.12)] px-2 py-1 rounded">
+              {{ stats.overdue }} overdue
+            </span>
+          </div>
+          <select
+            v-model="sortBy"
+            class="delega-sort-select"
+          >
+            <option v-for="opt in sortOptions" :key="opt.id" :value="opt.id">{{ opt.label }}</option>
+          </select>
+        </div>
+
+        <!-- Inline Task Editor (desktop) -->
+        <div v-if="showInlineEditor" class="inline-task-editor desktop-only slide-up">
+          <input
+            ref="inlineTaskInput"
+            v-model="inlineTask.content"
+            type="text"
+            placeholder="Task name"
+            class="inline-task-input"
+            @keydown.enter.prevent="saveInlineTask"
+            @keydown.escape="showInlineEditor = false"
+          >
+          <textarea
+            v-model="inlineTask.description"
+            placeholder="Description"
+            rows="1"
+            class="inline-task-desc"
+          ></textarea>
+
+          <!-- Action buttons row -->
+          <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-[rgba(255,255,255,0.06)]">
+            <!-- Date picker -->
+            <div class="relative">
+              <button
+                @click="showInlineDatePicker = !showInlineDatePicker"
+                :class="['inline-action-btn', inlineTask.due_date ? 'has-value' : '']"
+              >
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <span>{{ inlineTask.due_date ? formatDate(inlineTask.due_date) : 'Due date' }}</span>
+              </button>
+              <!-- Date dropdown -->
+              <div v-if="showInlineDatePicker" class="absolute top-full left-0 mt-1 bg-[#2a2a2a] border border-[rgba(255,255,255,0.1)] rounded-lg shadow-xl z-20 py-1 min-w-[140px]">
+                <button @click="inlineTask.due_date = getDeferDate('today'); showInlineDatePicker = false" class="w-full text-left px-3 py-2 text-[13px] text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.06)]">Today</button>
+                <button @click="inlineTask.due_date = getDeferDate('tomorrow'); showInlineDatePicker = false" class="w-full text-left px-3 py-2 text-[13px] text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.06)]">Tomorrow</button>
+                <button @click="inlineTask.due_date = getDeferDate('weekend'); showInlineDatePicker = false" class="w-full text-left px-3 py-2 text-[13px] text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.06)]">This weekend</button>
+                <button @click="inlineTask.due_date = getDeferDate('nextweek'); showInlineDatePicker = false" class="w-full text-left px-3 py-2 text-[13px] text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.06)]">Next week</button>
+                <div class="border-t border-[rgba(255,255,255,0.06)] my-1"></div>
+                <button @click="inlineTask.due_date = null; showInlineDatePicker = false" class="w-full text-left px-3 py-2 text-[13px] text-[#666] hover:bg-[rgba(255,255,255,0.06)]">No date</button>
+              </div>
+            </div>
+
+            <!-- Priority picker -->
+            <div class="relative">
+              <button
+                @click="showInlinePriorityPicker = !showInlinePriorityPicker"
+                :class="['inline-action-btn', inlineTask.priority > 1 ? 'has-value' : '']"
+              >
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path>
+                </svg>
+                <span>P{{ inlineTask.priority }}</span>
+              </button>
+              <div v-if="showInlinePriorityPicker" class="absolute top-full left-0 mt-1 bg-[#2a2a2a] border border-[rgba(255,255,255,0.1)] rounded-lg shadow-xl z-20 py-1 min-w-[100px]">
+                <button v-for="p in [4,3,2,1]" :key="p" @click="inlineTask.priority = p; showInlinePriorityPicker = false" :class="['w-full text-left px-3 py-2 text-[13px] hover:bg-[rgba(255,255,255,0.06)]', p === 4 ? 'text-[#d1453b]' : p === 3 ? 'text-[#eb8909]' : p === 2 ? 'text-[#4073ff]' : 'text-[#808080]']">
+                  Priority {{ p }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Labels -->
+            <button class="inline-action-btn">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z"></path>
+              </svg>
+              <span>Labels</span>
+            </button>
+          </div>
+
+          <!-- Bottom row: project + buttons -->
+          <div class="flex items-center justify-between mt-3">
+            <select v-model="inlineTask.project_id" class="bg-transparent border border-[rgba(255,255,255,0.08)] rounded px-2 py-1.5 text-[13px] text-[#999] focus:outline-none focus:border-[rgba(255,255,255,0.15)]">
+              <option :value="null">Inbox</option>
+              <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+            <div class="flex items-center gap-2">
+              <button @click="showInlineEditor = false" class="px-3 py-1.5 text-[13px] text-[#999] hover:text-[#b3b3b3] rounded hover:bg-[rgba(255,255,255,0.04)] transition-colors">Cancel</button>
+              <button @click="saveInlineTask" :disabled="!inlineTask.content?.trim()" class="delega-btn px-4 py-1.5 text-[13px]">Add task</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add task trigger (collapsed, desktop) -->
+        <button
+          v-if="!showInlineEditor"
+          @click="showInlineEditor = true; inlineTask = { content: '', description: '', due_date: currentTab === 'today' ? getDeferDate('today') : null, priority: 1, project_id: filterProject, labels: [] }; $nextTick(() => $refs.inlineTaskInput?.focus())"
+          class="add-task-trigger desktop-only w-full mb-4"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="text-[#00d4ff]">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+          </svg>
+          <span>Add task</span>
+        </button>
+      <!-- Empty state -->
+      <div v-if="filteredTasks.length === 0 && !isRefreshing" class="empty-state fade-in">
+        <div class="empty-state-icon">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <h3 class="empty-state-title">You're all caught up</h3>
+        <p class="empty-state-text">No tasks to show</p>
+      </div>
+
+      <!-- Task items -->
+      <div v-else class="py-1">
+        <!-- Overdue section (Today tab only) -->
+        <template v-if="currentTab === 'today' && overdueTasks.length > 0">
+          <div class="section-divider due-overdue">
+            <span>Overdue</span>
+            <span class="section-count">{{ overdueTasks.length }}</span>
+          </div>
+          <div
+            v-for="(task, index) in overdueTasks"
+            :key="'overdue-' + task.id"
+            @click="editTask(task)"
+            :class="[
+              'task-item fade-in',
+              `priority-${task.priority}`,
+              task.completed ? 'opacity-40' : ''
+            ]"
+            :style="{ animationDelay: `${index * 30}ms` }"
+          >
+            <div class="flex items-start gap-3">
+              <!-- Checkbox -->
+              <button
+                @click.stop="toggleComplete(task)"
+                :class="[
+                  'delega-checkbox mt-0.5',
+                  task.completed ? 'checked' : '',
+                  task.priority === 4 ? 'priority-4' : task.priority === 3 ? 'priority-3' : task.priority === 2 ? 'priority-2' : ''
+                ]"
+              >
+                <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </button>
+
+              <!-- Content -->
+              <div class="flex-1 min-w-0 py-0.5">
+                <div :class="['text-[14px] leading-snug', task.completed ? 'line-through text-[#666]' : 'text-[#e8e8e8]']">
+                  {{ task.content }} <span class="task-id-badge">#{{ task.id }}</span>
+                </div>
+                <div v-if="task.description" class="text-[13px] text-[#666] mt-0.5 line-clamp-1">
+                  {{ task.description }}
+                </div>
+
+                <!-- Meta info -->
+                <div v-if="task.due_date || task.project || (task.labels && task.labels.length) || (task.subtasks && task.subtasks.length)" class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[12px]">
+                  <!-- Due date -->
+                  <span
+                    v-if="task.due_date"
+                    :class="[
+                      'task-meta-item',
+                      isOverdue(task) ? 'due-overdue' : isToday(task) ? 'due-today' : 'due-upcoming'
+                    ]"
+                  >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span>{{ formatDate(task.due_date, task) }}</span>
+                    <span v-if="task.due_time" class="opacity-70">{{ formatTime(task.due_time) }}</span>
+                  </span>
+
+                  <!-- Project -->
+                  <span v-if="task.project" class="task-meta-item text-[#8b8b8b]">
+                    <span class="w-2 h-2 rounded-full bg-[#808080]" :style="task.project.color ? {background: task.project.color} : {}"></span>
+                    <span>{{ task.project.name }}</span>
+                  </span>
+
+                  <!-- Recurring indicator -->
+                  <span v-if="task.is_recurring || task.recurring_type" class="task-meta-item text-[#808080]">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                  </span>
+
+                  <!-- Subtask progress -->
+                  <span v-if="task.subtasks && task.subtasks.length > 0" class="task-meta-item text-[#808080]">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                    </svg>
+                    <span>{{ task.subtasks.filter(s => s.completed).length }}/{{ task.subtasks.length }}</span>
+                  </span>
+
+                  <!-- Labels -->
+                  <span
+                    v-for="label in task.labels"
+                    :key="label"
+                    class="text-[#808080] cursor-pointer hover:text-[#00d4ff] transition-colors"
+                    @click.stop="filterLabel = label; currentTab = 'all'; loadTasks()"
+                  >
+                    @{{ label.replace('@', '') }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-divider due-today" v-if="todayOnlyTasks.length > 0">
+            <span>Today</span>
+            <span class="section-count">{{ todayOnlyTasks.length }}</span>
+          </div>
+        </template>
+
+        <div
+          v-for="(task, index) in todayOnlyTasks"
+          :key="task.id"
+          @click="editTask(task)"
+          :class="[
+            'task-item fade-in',
+            `priority-${task.priority}`,
+            task.completed ? 'opacity-40' : ''
+          ]"
+          :style="{ animationDelay: `${((currentTab === 'today' ? overdueTasks.length : 0) + index) * 30}ms` }"
+        >
+          <div class="flex items-start gap-3">
+            <!-- Checkbox -->
+            <button
+              @click.stop="toggleComplete(task)"
+              :class="[
+                'delega-checkbox mt-0.5',
+                task.completed ? 'checked' : '',
+                task.priority === 4 ? 'priority-4' : task.priority === 3 ? 'priority-3' : task.priority === 2 ? 'priority-2' : ''
+              ]"
+            >
+              <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+              </svg>
+            </button>
+
+            <!-- Content -->
+            <div class="flex-1 min-w-0 py-0.5">
+              <div :class="['text-[14px] leading-snug', task.completed ? 'line-through text-[#666]' : 'text-[#e8e8e8]']">
+                {{ task.content }} <span class="task-id-badge">#{{ task.id }}</span>
+              </div>
+              <div v-if="task.description" class="text-[13px] text-[#666] mt-0.5 line-clamp-1">
+                {{ task.description }}
+              </div>
+
+              <!-- Meta info -->
+              <div v-if="task.due_date || task.project || (task.labels && task.labels.length) || (task.subtasks && task.subtasks.length)" class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[12px]">
+                <!-- Due date -->
+                <span
+                  v-if="task.due_date"
+                  :class="[
+                    'task-meta-item',
+                    isOverdue(task) ? 'due-overdue' : isToday(task) ? 'due-today' : 'due-upcoming'
+                  ]"
+                >
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  <span>{{ formatDate(task.due_date, task) }}</span>
+                  <span v-if="task.due_time" class="opacity-70">{{ formatTime(task.due_time) }}</span>
+                </span>
+
+                <!-- Project -->
+                <span v-if="task.project" class="task-meta-item text-[#8b8b8b]">
+                  <span class="w-2 h-2 rounded-full bg-[#808080]" :style="task.project.color ? {background: task.project.color} : {}"></span>
+                  <span>{{ task.project.name }}</span>
+                </span>
+
+                <!-- Recurring indicator -->
+                <span v-if="task.is_recurring || task.recurring_type" class="task-meta-item text-[#808080]">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                  </svg>
+                </span>
+
+                <!-- Subtask progress -->
+                <span v-if="task.subtasks && task.subtasks.length > 0" class="task-meta-item text-[#808080]">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                  </svg>
+                  <span>{{ task.subtasks.filter(s => s.completed).length }}/{{ task.subtasks.length }}</span>
+                </span>
+
+                <!-- Labels -->
+                <span
+                  v-for="label in task.labels"
+                  :key="label"
+                  class="text-[#808080] cursor-pointer hover:text-[#00d4ff] transition-colors"
+                  @click.stop="filterLabel = label; currentTab = 'all'; loadTasks()"
+                >
+                  @{{ label.replace('@', '') }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+    </div><!-- end main-content -->
+
+    <!-- Projects & Labels Bottom Sheet (mobile only) -->
+    <div v-if="showProjects" @click.self="showProjects = false" class="mobile-only fixed inset-0 modal-backdrop z-50 flex items-end">
+      <div class="w-full max-h-[70vh] bottom-sheet rounded-t-xl overflow-hidden slide-up relative pt-5">
+        <div class="px-4 pb-3 border-b border-[rgba(255,255,255,0.06)] flex items-center justify-between">
+          <h2 class="font-semibold text-[15px] text-[#e8e8e8]">Projects & Labels</h2>
+          <button @click="showProjects = false" class="w-7 h-7 rounded-md flex items-center justify-center text-[#666] hover:text-[#999] hover:bg-[rgba(255,255,255,0.04)] transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="p-2 overflow-y-auto max-h-[50vh]">
+          <button
+            @click="filterProject = null; filterLabel = null; currentTab = 'all'; showProjects = false; loadTasks()"
+            :class="[
+              'w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center gap-3',
+              filterProject === null && filterLabel === null && currentTab === 'all' ? 'bg-[rgba(255,255,255,0.08)] text-[#e8e8e8]' : 'text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.04)]'
+            ]"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+            </svg>
+            <span class="text-[14px]">All Tasks</span>
+          </button>
+
+          <button
+            v-for="project in projects"
+            :key="project.id"
+            @click="filterProject = project.id; filterLabel = null; currentTab = 'all'; showProjects = false; loadTasks()"
+            :class="[
+              'w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center justify-between',
+              filterProject === project.id && filterLabel === null ? 'bg-[rgba(255,255,255,0.08)] text-[#e8e8e8]' : 'text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.04)]'
+            ]"
+          >
+            <div class="flex items-center gap-3">
+              <span class="w-2 h-2 rounded-full bg-[#808080]" :style="project.color ? {background: project.color} : {}"></span>
+              <span class="text-[14px]">{{ project.name }}</span>
+            </div>
+            <span class="text-[12px] text-[#666]">{{ projectTaskCount(project.id) }}</span>
+          </button>
+
+          <!-- Labels -->
+          <div v-if="allLabels.length" class="mt-3 pt-3 border-t border-[rgba(255,255,255,0.06)]">
+            <button @click="showLabels = !showLabels" class="w-full text-left px-3 pb-2 flex items-center justify-between">
+              <span class="text-[11px] font-semibold text-[#666] uppercase tracking-wider">🏷️ Labels</span>
+              <svg :style="{ transform: showLabels ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }" class="w-3 h-3 text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+              </svg>
+            </button>
+            <div v-if="showLabels">
+              <button
+                v-for="label in allLabels"
+                :key="label"
+                @click="filterLabel = label; filterProject = null; currentTab = 'all'; showProjects = false; loadTasks()"
+                :class="[
+                  'w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center justify-between',
+                  filterLabel === label ? 'bg-[rgba(255,255,255,0.08)] text-[#e8e8e8]' : 'text-[#b3b3b3] hover:bg-[rgba(255,255,255,0.04)]'
+                ]"
+              >
+                <div class="flex items-center gap-3">
+                  <span class="text-[#00d4ff] text-[12px] font-medium">@</span>
+                  <span class="text-[14px]">{{ label.replace('@', '') }}</span>
+                </div>
+                <span class="text-[12px] text-[#666]">{{ labelTaskCount(label) }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE Task Edit Modal -->
+    <div v-if="editingTask" class="mobile-only fixed inset-0 z-50 mobile-edit-modal overflow-y-auto">
+      <!-- Header -->
+      <div class="sticky top-0 bg-[#1e1e1e] z-10 flex items-center justify-between px-3 py-3 border-b border-[rgba(255,255,255,0.06)]">
+        <button @click="editingTask = null" class="w-9 h-9 rounded-full flex items-center justify-center text-[#999] hover:bg-[rgba(255,255,255,0.06)]">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+        <div class="flex items-center gap-2">
+          <button @click="saveTask" class="px-4 py-2 rounded-lg bg-[#00d4ff] text-white text-[14px] font-medium">
+            {{ editingTask.id ? 'Save' : 'Add' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Task Title + Description Section -->
+      <div class="edit-task-header">
+        <div class="flex items-start gap-3">
+          <button
+            v-if="editingTask.id"
+            @click.stop="toggleComplete(editingTask); editingTask = null"
+            :class="[
+              'delega-checkbox mt-1 flex-shrink-0',
+              editingTask.completed ? 'checked' : '',
+              editingTask.priority === 4 ? 'priority-4' : editingTask.priority === 3 ? 'priority-3' : editingTask.priority === 2 ? 'priority-2' : ''
+            ]"
+          >
+            <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <div class="flex-1">
+            <input
+              v-model="editingTask.content"
+              type="text"
+              class="edit-task-title"
+              placeholder="Task name"
+            >
+            <textarea
+              v-model="editingTask.description"
+              rows="2"
+              class="edit-task-desc"
+              placeholder="Add description..."
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attribute Rows -->
+      <div class="py-2">
+        <!-- Project Row -->
+        <button @click="showMobileProjectPicker = true" class="edit-row w-full text-left">
+          <svg class="edit-row-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+          <div class="edit-row-content">
+            <div class="edit-row-label">Project</div>
+            <div :class="['edit-row-value', editingTask.project_id ? 'has-value' : '']">
+              {{ editingTask.project_id ? (projects.find(p => p.id === editingTask.project_id)?.name || 'Project') : 'Inbox' }}
+            </div>
+          </div>
+          <svg class="edit-row-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+
+        <!-- Due Date Row -->
+        <button @click="showMobileDatePicker = true" class="edit-row w-full text-left">
+          <svg class="edit-row-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+          </svg>
+          <div class="edit-row-content">
+            <div class="edit-row-label">Due date</div>
+            <div :class="['edit-row-value', editingTask.due_date ? 'has-value' : '']">
+              {{ editingTask.due_date ? formatDate(editingTask.due_date) : 'No date' }}
+              <span v-if="editingTask.due_time" class="text-[#666] ml-1">{{ formatTime(editingTask.due_time) }}</span>
+            </div>
+          </div>
+          <svg class="edit-row-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+
+        <!-- Priority Row -->
+        <button @click="showMobilePriorityPicker = true" class="edit-row w-full text-left">
+          <svg :class="['edit-row-icon', editingTask.priority === 4 ? 'text-[#d1453b]' : editingTask.priority === 3 ? 'text-[#eb8909]' : editingTask.priority === 2 ? 'text-[#4073ff]' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"></path>
+          </svg>
+          <div class="edit-row-content">
+            <div class="edit-row-label">Priority</div>
+            <div :class="['edit-row-value', 'priority-' + editingTask.priority]">
+              Priority {{ editingTask.priority }}
+            </div>
+          </div>
+          <svg class="edit-row-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+
+        <!-- Repeat Row -->
+        <button @click="showMobileRepeatPicker = true" class="edit-row w-full text-left">
+          <svg class="edit-row-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          <div class="edit-row-content">
+            <div class="edit-row-label">Repeat</div>
+            <div :class="['edit-row-value', editingTask.recurring_type ? 'has-value' : '']">
+              {{ editingTask.recurring_type ? (editingTask.recurring_string || (editingTask.recurring_type.charAt(0).toUpperCase() + editingTask.recurring_type.slice(1))) : 'No repeat' }}
+            </div>
+          </div>
+          <svg class="edit-row-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+
+        <!-- Reminder Row -->
+        <div class="edit-row w-full text-left">
+          <svg class="edit-row-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+          </svg>
+          <div class="edit-row-content flex-1">
+            <div class="edit-row-label">Reminder</div>
+            <input
+              v-model="editingTask.reminder_time"
+              type="datetime-local"
+              class="w-full bg-transparent text-[14px] text-[#e8e8e8] outline-none mt-0.5"
+              @change="editingTask.reminder_sent = false"
+            >
+          </div>
+          <button v-if="editingTask.reminder_time" @click="editingTask.reminder_time = null; editingTask.reminder_sent = false" class="text-[#666] hover:text-[#ff7066] p-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Action Pills -->
+      <div class="quick-pills">
+        <button
+          @click="editingTask.due_date = getDeferDate('today')"
+          :class="['quick-pill', editingTask.due_date === getDeferDate('today') ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          Today
+        </button>
+        <button
+          @click="editingTask.due_date = getDeferDate('tomorrow')"
+          :class="['quick-pill', editingTask.due_date === getDeferDate('tomorrow') ? 'active' : '']"
+        >
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707"/>
+          </svg>
+          Tomorrow
+        </button>
+        <button
+          @click="editingTask.due_date = getDeferDate('weekend')"
+          :class="['quick-pill', editingTask.due_date === getDeferDate('weekend') ? 'active' : '']"
+        >
+          Weekend
+        </button>
+        <button
+          @click="editingTask.due_date = getDeferDate('nextweek')"
+          :class="['quick-pill', editingTask.due_date === getDeferDate('nextweek') ? 'active' : '']"
+        >
+          Next week
+        </button>
+      </div>
+
+      <!-- Labels Section (only for existing tasks) -->
+      <div v-if="editingTask.id">
+        <button @click="showMobileLabels = !showMobileLabels" class="collapsible-header w-full text-left">
+          <h3>Labels <span class="count" v-if="editingTask.labels.length">({{ editingTask.labels.length }})</span></h3>
+          <svg :class="['collapsible-chevron', showMobileLabels ? 'expanded' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+        </button>
+        <div v-if="showMobileLabels" class="collapsible-content">
+          <div class="flex flex-wrap gap-2 mb-3" v-if="editingTask.labels.length">
+            <span
+              v-for="label in editingTask.labels"
+              :key="label"
+              class="label-tag"
+            >
+              {{ label }}
+              <button @click="removeLabel(label)" class="text-[#666] hover:text-[#ff7066]">×</button>
+            </span>
+          </div>
+          <div class="flex gap-2">
+            <input
+              v-model="newLabel"
+              @keyup.enter="addLabel"
+              type="text"
+              placeholder="Add label..."
+              class="flex-1 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2.5 text-[14px] text-[#e8e8e8] outline-none"
+            >
+            <button @click="addLabel" class="px-4 py-2 bg-[rgba(255,255,255,0.06)] rounded-lg text-[#999] text-[13px]">Add</button>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-3">
+            <button
+              v-for="suggestion in ['@marty', '@waiting', '@quick']"
+              :key="suggestion"
+              @click="editingTask.labels.includes(suggestion) ? null : editingTask.labels.push(suggestion)"
+              :class="[
+                'text-[12px] px-3 py-1.5 rounded-full transition-all',
+                editingTask.labels.includes(suggestion)
+                  ? 'bg-[rgba(220,76,62,0.12)] text-[#00d4ff]'
+                  : 'bg-[rgba(255,255,255,0.04)] text-[#808080]'
+              ]"
+            >
+              {{ suggestion }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sub-tasks Section (only for existing tasks) -->
+      <div v-if="editingTask.id">
+        <button @click="showMobileSubtasks = !showMobileSubtasks" class="collapsible-header w-full text-left">
+          <h3>Sub-tasks <span class="count" v-if="editingTask.subtasks.length">({{ editingTask.subtasks.filter(s => s.completed).length }}/{{ editingTask.subtasks.length }})</span></h3>
+          <svg :class="['collapsible-chevron', showMobileSubtasks ? 'expanded' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+        </button>
+        <div v-if="showMobileSubtasks" class="collapsible-content">
+          <div class="space-y-2 mb-3" v-if="editingTask.subtasks.length">
+            <div
+              v-for="subtask in editingTask.subtasks"
+              :key="subtask.id"
+              class="flex items-center gap-3 py-2"
+            >
+              <button
+                @click="toggleSubtask(subtask)"
+                :class="['delega-checkbox w-[18px] h-[18px]', subtask.completed ? 'checked' : '']"
+              >
+                <svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                </svg>
+              </button>
+              <span :class="['flex-1 text-[14px]', subtask.completed ? 'line-through text-[#666]' : 'text-[#b3b3b3]']">{{ subtask.content }}</span>
+              <button @click="deleteSubtask(subtask.id)" class="text-[#555] hover:text-[#ff7066] p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input
+              v-model="newSubtask"
+              @keyup.enter="addSubtask"
+              type="text"
+              placeholder="Add sub-task..."
+              class="flex-1 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2.5 text-[14px] text-[#e8e8e8] outline-none"
+            >
+            <button @click="addSubtask" class="px-4 py-2 bg-[rgba(255,255,255,0.06)] rounded-lg text-[#999] text-[13px]">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comments Section (only for existing tasks) -->
+      <div v-if="editingTask.id">
+        <button @click="showMobileComments = !showMobileComments" class="collapsible-header w-full text-left">
+          <h3>Comments <span class="count" v-if="editingTask.comments.length">({{ editingTask.comments.length }})</span></h3>
+          <svg :class="['collapsible-chevron', showMobileComments ? 'expanded' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+          </svg>
+        </button>
+        <div v-if="showMobileComments" class="collapsible-content">
+          <div class="space-y-3 mb-3" v-if="editingTask.comments.length">
+            <div
+              v-for="comment in editingTask.comments"
+              :key="comment.id"
+              class="bg-[rgba(255,255,255,0.03)] rounded-lg p-3"
+            >
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[12px] text-[#808080] font-medium">{{ comment.author || 'You' }}</span>
+                <div class="flex items-center gap-3">
+                  <span class="text-[11px] text-[#555]">{{ formatCommentDate(comment.created_at) }}</span>
+                  <button @click="deleteComment(comment.id)" class="text-[#555] hover:text-[#ff7066]">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <p class="text-[14px] text-[#b3b3b3]">{{ comment.content }}</p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <input
+              v-model="newComment"
+              @keyup.enter="addComment"
+              type="text"
+              placeholder="Add comment..."
+              class="flex-1 bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] rounded-lg px-3 py-2.5 text-[14px] text-[#e8e8e8] outline-none"
+            >
+            <button @click="addComment" class="px-4 py-2 bg-[rgba(255,255,255,0.06)] rounded-lg text-[#999] text-[13px]">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete Button -->
+      <div v-if="editingTask.id" class="p-4 mt-4 border-t border-[rgba(255,255,255,0.06)]">
+        <button @click="deleteTask(editingTask.id)" class="w-full py-3 rounded-lg bg-[rgba(209,69,59,0.12)] text-[#ff7066] text-[14px] font-medium">
+          Delete task
+        </button>
+      </div>
+
+      <!-- Bottom padding for safe area -->
+      <div class="h-8 safe-bottom"></div>
+    </div>
+
+    <!-- MOBILE Project Picker Bottom Sheet -->
+    <div v-if="editingTask && showMobileProjectPicker" @click.self="showMobileProjectPicker = false" class="mobile-only fixed inset-0 modal-backdrop z-[60] flex items-end">
+      <div class="picker-sheet w-full relative pt-5 slide-up">
+        <div class="picker-header">
+          <h3>Project</h3>
+          <button @click="showMobileProjectPicker = false" class="text-[#999] p-1">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="overflow-y-auto max-h-[50vh] pb-safe">
+          <button
+            @click="editingTask.project_id = null; showMobileProjectPicker = false"
+            :class="['picker-option w-full', !editingTask.project_id ? 'selected' : '']"
+          >
+            <svg class="picker-option-icon text-[#4073ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+            </svg>
+            <span class="picker-option-text">Inbox</span>
+            <svg v-if="!editingTask.project_id" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <button
+            v-for="project in projects"
+            :key="project.id"
+            @click="editingTask.project_id = project.id; showMobileProjectPicker = false"
+            :class="['picker-option w-full', editingTask.project_id === project.id ? 'selected' : '']"
+          >
+            <span class="w-5 h-5 rounded-full flex-shrink-0" :style="project.color ? {background: project.color} : {background: '#808080'}"></span>
+            <span class="picker-option-text">{{ project.name }}</span>
+            <svg v-if="editingTask.project_id === project.id" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE Date Picker Bottom Sheet -->
+    <div v-if="editingTask && showMobileDatePicker" @click.self="showMobileDatePicker = false" class="mobile-only fixed inset-0 modal-backdrop z-[60] flex items-end">
+      <div class="picker-sheet w-full relative pt-5 slide-up">
+        <div class="picker-header">
+          <h3>Due date</h3>
+          <button @click="showMobileDatePicker = false" class="text-[#999] p-1">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="overflow-y-auto max-h-[50vh] pb-safe">
+          <button @click="editingTask.due_date = getDeferDate('today'); showMobileDatePicker = false" :class="['picker-option w-full', editingTask.due_date === getDeferDate('today') ? 'selected' : '']">
+            <svg class="picker-option-icon text-[#058527]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3" stroke-width="2"/>
+            </svg>
+            <span class="picker-option-text">Today</span>
+            <svg v-if="editingTask.due_date === getDeferDate('today')" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <button @click="editingTask.due_date = getDeferDate('tomorrow'); showMobileDatePicker = false" :class="['picker-option w-full', editingTask.due_date === getDeferDate('tomorrow') ? 'selected' : '']">
+            <svg class="picker-option-icon text-[#eb8909]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            <span class="picker-option-text">Tomorrow</span>
+            <svg v-if="editingTask.due_date === getDeferDate('tomorrow')" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <button @click="editingTask.due_date = getDeferDate('weekend'); showMobileDatePicker = false" :class="['picker-option w-full', editingTask.due_date === getDeferDate('weekend') ? 'selected' : '']">
+            <svg class="picker-option-icon text-[#4073ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+            </svg>
+            <span class="picker-option-text">This weekend</span>
+            <svg v-if="editingTask.due_date === getDeferDate('weekend')" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <button @click="editingTask.due_date = getDeferDate('nextweek'); showMobileDatePicker = false" :class="['picker-option w-full', editingTask.due_date === getDeferDate('nextweek') ? 'selected' : '']">
+            <svg class="picker-option-icon text-[#a970ff]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <span class="picker-option-text">Next week</span>
+            <svg v-if="editingTask.due_date === getDeferDate('nextweek')" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <div class="border-t border-[rgba(255,255,255,0.06)] my-2"></div>
+          <div class="px-4 py-3">
+            <label class="text-[12px] text-[#666] mb-2 block">Pick a date</label>
+            <input
+              v-model="editingTask.due_date"
+              type="date"
+              class="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.1)] rounded-lg px-4 py-3 text-[15px] text-[#e8e8e8] outline-none"
+              @change="showMobileDatePicker = false"
+            >
+          </div>
+          <div class="px-4 py-3 border-t border-[rgba(255,255,255,0.06)]">
+            <label class="text-[12px] text-[#666] mb-2 block">Time (optional)</label>
+            <input
+              v-model="editingTask.due_time"
+              type="time"
+              class="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.1)] rounded-lg px-4 py-3 text-[15px] text-[#e8e8e8] outline-none"
+            >
+          </div>
+          <button @click="editingTask.due_date = null; editingTask.due_time = null; showMobileDatePicker = false" class="picker-option w-full border-t border-[rgba(255,255,255,0.06)]">
+            <svg class="picker-option-icon text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            <span class="picker-option-text text-[#999]">No date</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE Priority Picker Bottom Sheet -->
+    <div v-if="editingTask && showMobilePriorityPicker" @click.self="showMobilePriorityPicker = false" class="mobile-only fixed inset-0 modal-backdrop z-[60] flex items-end">
+      <div class="picker-sheet w-full relative pt-5 slide-up">
+        <div class="picker-header">
+          <h3>Priority</h3>
+          <button @click="showMobilePriorityPicker = false" class="text-[#999] p-1">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="pb-safe">
+          <button
+            v-for="p in [4, 3, 2, 1]"
+            :key="p"
+            @click="editingTask.priority = p; showMobilePriorityPicker = false"
+            :class="['picker-option w-full', editingTask.priority === p ? 'selected' : '']"
+          >
+            <svg :class="['picker-option-icon', p === 4 ? 'text-[#d1453b]' : p === 3 ? 'text-[#eb8909]' : p === 2 ? 'text-[#4073ff]' : 'text-[#808080]']" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2z"/>
+            </svg>
+            <span :class="['picker-option-text', p === 4 ? 'text-[#d1453b]' : p === 3 ? 'text-[#eb8909]' : p === 2 ? 'text-[#4073ff]' : '']">Priority {{ p }}</span>
+            <svg v-if="editingTask.priority === p" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOBILE Repeat Picker Bottom Sheet -->
+    <div v-if="editingTask && showMobileRepeatPicker" @click.self="showMobileRepeatPicker = false" class="mobile-only fixed inset-0 modal-backdrop z-[60] flex items-end">
+      <div class="picker-sheet w-full relative pt-5 slide-up">
+        <div class="picker-header">
+          <h3>Repeat</h3>
+          <button @click="showMobileRepeatPicker = false" class="text-[#999] p-1">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="pb-safe">
+          <button
+            @click="editingTask.recurring_type = null; showMobileRepeatPicker = false"
+            :class="['picker-option w-full', !editingTask.recurring_type ? 'selected' : '']"
+          >
+            <svg class="picker-option-icon text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            <span class="picker-option-text text-[#999]">No repeat</span>
+            <svg v-if="!editingTask.recurring_type" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+          <button
+            v-for="opt in [{value: 'daily', label: 'Daily'}, {value: 'weekly', label: 'Weekly'}, {value: 'monthly', label: 'Monthly'}, {value: 'yearly', label: 'Yearly'}]"
+            :key="opt.value"
+            @click="editingTask.recurring_type = opt.value; editingTask.recurring_interval = editingTask.recurring_interval || 1; showMobileRepeatPicker = false"
+            :class="['picker-option w-full', editingTask.recurring_type === opt.value ? 'selected' : '']"
+          >
+            <svg class="picker-option-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+            <span class="picker-option-text">{{ opt.label }}</span>
+            <svg v-if="editingTask.recurring_type === opt.value" class="picker-option-check" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="editingTask" @click.self="editingTask = null" class="desktop-only fixed inset-0 modal-backdrop z-50 flex items-center justify-center">
+      <div class="w-full max-w-3xl bg-[#262626] rounded-xl overflow-hidden dialog-enter" style="border: 1px solid rgba(255,255,255,0.08);">
+        <!-- Header -->
+        <div class="px-5 py-3 border-b border-[rgba(255,255,255,0.06)] flex items-center justify-between bg-[#262626]">
+          <h2 class="font-semibold text-[15px] text-[#e8e8e8] font-display">{{ editingTask.id ? 'Edit task' : 'New task' }}</h2>
+          <button @click="editingTask = null" class="w-7 h-7 rounded-md flex items-center justify-center text-[#555] hover:text-[#999] hover:bg-[rgba(255,255,255,0.06)] transition-all">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Two-Panel Body -->
+        <div class="desktop-edit-panel">
+          <!-- LEFT PANEL: Content (name + big description + accordion triggers) -->
+          <div class="desktop-edit-left">
+            <!-- Hero task name -->
+            <input
+              v-model="editingTask.content"
+              type="text"
+              class="desktop-task-name"
+              placeholder="Task name"
+            >
+            <!-- Description (large, flex-grows to fill) -->
+            <textarea
+              v-model="editingTask.description"
+              rows="8"
+              class="desktop-task-desc"
+              placeholder="Add a description..."
+            ></textarea>
+
+            <!-- Accordion: Sub-tasks (edit only, collapsed by default) -->
+            <template v-if="editingTask.id">
+              <div class="accordion-trigger" @click="desktopShowSubtasks = !desktopShowSubtasks" style="margin-top: auto; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.04);">
+                <svg :class="['acc-chevron', desktopShowSubtasks ? 'open' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+                <span>Sub-tasks</span>
+                <span class="acc-count" v-if="editingTask.subtasks.length">({{ editingTask.subtasks.length }})</span>
+              </div>
+              <div v-if="desktopShowSubtasks" class="accordion-body" style="padding-bottom: 8px;">
+                <div class="space-y-1 mb-2" v-if="editingTask.subtasks.length">
+                  <div
+                    v-for="subtask in editingTask.subtasks"
+                    :key="subtask.id"
+                    class="subtask-item"
+                  >
+                    <button
+                      @click="toggleSubtask(subtask)"
+                      :class="['delega-checkbox w-4 h-4', subtask.completed ? 'checked' : '']"
+                    >
+                      <svg class="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                      </svg>
+                    </button>
+                    <span :class="['flex-1 text-[13px]', subtask.completed ? 'line-through text-[#666]' : 'text-[#b3b3b3]']">{{ subtask.content }}</span>
+                    <button @click="deleteSubtask(subtask.id)" class="text-[#666] hover:text-[#ff7066] text-[12px] transition-colors">&times;</button>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <input
+                    v-model="newSubtask"
+                    @keyup.enter="addSubtask"
+                    type="text"
+                    placeholder="Add sub-task..."
+                    class="compact-input flex-1"
+                  >
+                  <button @click="addSubtask" class="delega-btn delega-btn-secondary px-3 py-1.5 text-[12px]">Add</button>
+                </div>
+              </div>
+
+              <!-- Accordion: Comments (collapsed by default) -->
+              <div class="accordion-trigger" @click="desktopShowComments = !desktopShowComments">
+                <svg :class="['acc-chevron', desktopShowComments ? 'open' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+                <span>Comments</span>
+                <span class="acc-count" v-if="editingTask.comments.length">({{ editingTask.comments.length }})</span>
+              </div>
+              <div v-if="desktopShowComments" class="accordion-body" style="padding-bottom: 8px;">
+                <div class="space-y-1 mb-2 max-h-40 overflow-y-auto" v-if="editingTask.comments.length">
+                  <div
+                    v-for="comment in editingTask.comments"
+                    :key="comment.id"
+                    class="comment-item"
+                  >
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="text-[11px] text-[#808080] font-medium">{{ comment.author || 'You' }}</span>
+                      <div class="flex items-center gap-2">
+                        <span class="text-[10px] text-[#666]">{{ formatCommentDate(comment.created_at) }}</span>
+                        <button @click="deleteComment(comment.id)" class="text-[#666] hover:text-[#ff7066] text-[12px] transition-colors">&times;</button>
+                      </div>
+                    </div>
+                    <p class="text-[13px] text-[#b3b3b3]">{{ comment.content }}</p>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <input
+                    v-model="newComment"
+                    @keyup.enter="addComment"
+                    type="text"
+                    placeholder="Add comment..."
+                    class="compact-input flex-1"
+                  >
+                  <button @click="addComment" class="delega-btn delega-btn-secondary px-3 py-1.5 text-[12px]">Add</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- RIGHT PANEL: Metadata (reordered by frequency) -->
+          <div class="desktop-edit-right">
+            <!-- Project -->
+            <div class="meta-field">
+              <label class="meta-field-label">Project</label>
+              <select v-model="editingTask.project_id" class="compact-input">
+                <option :value="null">Inbox</option>
+                <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+            </div>
+
+            <!-- Priority -->
+            <div class="meta-field">
+              <label class="meta-field-label">Priority</label>
+              <div class="grid grid-cols-4 gap-1.5">
+                <button
+                  v-for="p in [1,2,3,4]"
+                  :key="p"
+                  @click="editingTask.priority = p"
+                  :class="[
+                    'priority-btn text-[11px] py-1.5',
+                    'p' + p,
+                    editingTask.priority === p ? 'active' : ''
+                  ]"
+                >
+                  P{{ p }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Due Date & Time -->
+            <div class="meta-field">
+              <label class="meta-field-label">Due date</label>
+              <div class="grid grid-cols-2 gap-2">
+                <input v-model="editingTask.due_date" type="date" class="compact-input">
+                <input v-model="editingTask.due_time" type="time" class="compact-input">
+              </div>
+            </div>
+
+            <!-- Quick Schedule -->
+            <div class="meta-field">
+              <label class="meta-field-label">Quick schedule</label>
+              <div class="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  @click="editingTask.due_date = getDeferDate('today')"
+                  :class="['defer-btn text-[11px] px-2 py-1', editingTask.due_date === getDeferDate('today') ? 'active' : '']"
+                >Today</button>
+                <button
+                  type="button"
+                  @click="editingTask.due_date = getDeferDate('tomorrow')"
+                  :class="['defer-btn text-[11px] px-2 py-1', editingTask.due_date === getDeferDate('tomorrow') ? 'active' : '']"
+                >Tmrw</button>
+                <button
+                  type="button"
+                  @click="editingTask.due_date = getDeferDate('weekend')"
+                  :class="['defer-btn text-[11px] px-2 py-1', editingTask.due_date === getDeferDate('weekend') ? 'active' : '']"
+                >Wknd</button>
+                <button
+                  type="button"
+                  @click="editingTask.due_date = getDeferDate('nextweek')"
+                  :class="['defer-btn text-[11px] px-2 py-1', editingTask.due_date === getDeferDate('nextweek') ? 'active' : '']"
+                >Next wk</button>
+                <button
+                  type="button"
+                  @click="editingTask.due_date = null"
+                  :class="['defer-btn text-[11px] px-2 py-1', editingTask.due_date === null ? 'active' : '']"
+                >None</button>
+              </div>
+            </div>
+
+            <!-- Divider between core and secondary fields -->
+            <template v-if="editingTask.id">
+              <div class="meta-divider"></div>
+
+              <!-- Repeat -->
+              <div class="meta-field">
+                <label class="meta-field-label">Repeat</label>
+                <div class="flex gap-2">
+                  <select v-model="editingTask.recurring_type" class="compact-input flex-1">
+                    <option :value="null">Don't repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                  <div v-if="editingTask.recurring_type" class="flex items-center gap-1.5">
+                    <span class="text-[#555] text-[11px]">every</span>
+                    <input
+                      v-model.number="editingTask.recurring_interval"
+                      type="number"
+                      min="1"
+                      max="99"
+                      class="compact-input w-12 text-center px-1"
+                    >
+                  </div>
+                </div>
+                <p v-if="editingTask.recurring_string" class="text-[11px] text-[#808080] mt-1.5">
+                  Repeats: {{ editingTask.recurring_string }}
+                </p>
+              </div>
+
+              <!-- Reminder -->
+              <div class="meta-field">
+                <label class="meta-field-label">Reminder</label>
+                <div class="flex gap-2 items-center">
+                  <input
+                    v-model="editingTask.reminder_time"
+                    type="datetime-local"
+                    class="compact-input flex-1"
+                    @change="editingTask.reminder_sent = false"
+                  >
+                  <button
+                    v-if="editingTask.reminder_time"
+                    @click="editingTask.reminder_time = null; editingTask.reminder_sent = false"
+                    class="text-[#555] hover:text-[#ff7066] p-1 transition-colors"
+                    title="Clear reminder"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Labels -->
+              <div class="meta-field">
+                <label class="meta-field-label">Labels</label>
+                <div class="flex flex-wrap gap-1.5 mb-2" v-if="editingTask.labels.length">
+                  <span
+                    v-for="label in editingTask.labels"
+                    :key="label"
+                    class="label-tag"
+                  >
+                    {{ label }}
+                    <button @click="removeLabel(label)" class="text-[#666] hover:text-[#ff7066]">&times;</button>
+                  </span>
+                </div>
+                <div class="flex gap-2">
+                  <input
+                    v-model="newLabel"
+                    @keyup.enter="addLabel"
+                    type="text"
+                    placeholder="Add label..."
+                    class="compact-input flex-1"
+                  >
+                  <button @click="addLabel" class="delega-btn delega-btn-secondary px-3 py-1.5 text-[12px]">+</button>
+                </div>
+                <div class="flex gap-1.5 mt-2">
+                  <button
+                    v-for="suggestion in ['@marty', '@waiting', '@quick']"
+                    :key="suggestion"
+                    @click="editingTask.labels.includes(suggestion) ? null : editingTask.labels.push(suggestion)"
+                    :class="[
+                      'text-[11px] px-2 py-1 rounded transition-all',
+                      editingTask.labels.includes(suggestion)
+                        ? 'bg-[rgba(0,212,255,0.12)] text-[#00d4ff]'
+                        : 'bg-[rgba(255,255,255,0.04)] text-[#808080] hover:bg-[rgba(255,255,255,0.08)]'
+                    ]"
+                  >
+                    {{ suggestion }}
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Footer actions -->
+        <div class="px-5 py-3 border-t border-[rgba(255,255,255,0.06)] flex gap-2 bg-[#262626]">
+          <button v-if="editingTask.id" @click="deleteTask(editingTask.id)" class="delega-btn delega-btn-danger px-3 text-[13px]">
+            Delete
+          </button>
+          <div class="flex-1"></div>
+          <button @click="editingTask = null" class="delega-btn delega-btn-secondary px-4 text-[13px]">
+            Cancel
+          </button>
+          <button @click="saveTask" class="delega-btn px-5 text-[13px]">
+            {{ editingTask.id ? 'Save' : 'Add task' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Help -->
+    <div v-if="showHelp" @click.self="showHelp = false" class="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4">
+      <div class="bg-[#262626] border border-[rgba(255,255,255,0.08)] rounded-xl p-5 max-w-xs w-full fade-in">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold text-[15px] text-[#e8e8e8]">Keyboard shortcuts</h2>
+          <button @click="showHelp = false" class="w-7 h-7 rounded-md flex items-center justify-center text-[#666] hover:text-[#999] hover:bg-[rgba(255,255,255,0.04)] transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="space-y-2.5 text-[13px]">
+          <div class="flex justify-between items-center">
+            <span class="text-[#8b8b8b]">Add task</span>
+            <kbd>N</kbd>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-[#8b8b8b]">Refresh</span>
+            <kbd>R</kbd>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-[#8b8b8b]">Close</span>
+            <kbd>Esc</kbd>
+          </div>
+          <div class="flex justify-between items-center">
+            <span class="text-[#8b8b8b]">Switch views</span>
+            <div class="flex gap-1">
+              <kbd>1</kbd>
+              <kbd>2</kbd>
+              <kbd>3</kbd>
+              <kbd>4</kbd>
+            </div>
+          </div>
+        </div>
+        <p class="text-[11px] text-[#666] mt-4 pt-3 border-t border-[rgba(255,255,255,0.06)]">
+          Pull down to refresh on mobile
+        </p>
+      </div>
+    </div>
+
+    <!-- Mobile Notification Settings Modal -->
+    <div v-if="showMobileNotifications" @click.self="showMobileNotifications = false" class="mobile-only fixed inset-0 modal-backdrop z-[60] flex items-end">
+      <div class="w-full bg-[#1e1e1e] rounded-t-2xl max-h-[50vh] overflow-y-auto safe-bottom">
+        <div class="p-4 border-b border-[rgba(255,255,255,0.06)]">
+          <div class="flex items-center justify-between">
+            <h3 class="text-[15px] font-semibold text-delega-text">🔔 Notifications</h3>
+            <button @click="showMobileNotifications = false" class="text-[#666] text-xl">&times;</button>
+          </div>
+        </div>
+        <div class="p-4 space-y-4">
+          <!-- Not in PWA mode warning -->
+          <div v-if="!isStandalone" class="bg-[#eb8909]/10 text-[#eb8909] rounded-lg p-3 text-[13px]">
+            <p class="font-medium">⚠️ Add to Home Screen</p>
+            <p class="text-[12px] mt-1 opacity-80">Push notifications require Delega to be added to your Home Screen. Tap Share → Add to Home Screen.</p>
+          </div>
+          
+          <!-- Push not supported -->
+          <div v-else-if="!pushSupported" class="bg-[#d1453b]/10 text-[#d1453b] rounded-lg p-3 text-[13px]">
+            <p>❌ Push notifications not supported on this device.</p>
+          </div>
+          
+          <!-- Permission denied -->
+          <div v-else-if="pushPermission === 'denied'" class="bg-[#d1453b]/10 text-[#d1453b] rounded-lg p-3 text-[13px]">
+            <p class="font-medium">❌ Notifications Blocked</p>
+            <p class="text-[12px] mt-1 opacity-80">Go to Settings → Delega → Notifications to enable.</p>
+          </div>
+          
+          <!-- Can subscribe -->
+          <div v-else-if="!pushSubscription" class="space-y-3">
+            <p class="text-[13px] text-[#999]">Get notified about task reminders and updates.</p>
+            <button @click="subscribeToPush" class="w-full py-3 bg-[#00d4ff] hover:bg-[#00a8cc] text-[#1a1a1a] font-medium rounded-lg transition-colors">
+              Enable Notifications
+            </button>
+          </div>
+          
+          <!-- Already subscribed -->
+          <div v-else class="space-y-3">
+            <div class="flex items-center gap-2 text-[#058527]">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+              <span class="text-[14px] font-medium">Notifications Enabled</span>
+            </div>
+            <div class="flex gap-2">
+              <button @click="sendTestNotification" class="flex-1 py-2.5 bg-[#2a2a2a] hover:bg-[#333] text-[#999] rounded-lg transition-colors text-[13px]">
+                Send Test
+              </button>
+              <button @click="unsubscribeFromPush" class="flex-1 py-2.5 bg-[#d1453b]/10 hover:bg-[#d1453b]/20 text-[#d1453b] rounded-lg transition-colors text-[13px]">
+                Disable
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Action Button (mobile only, hidden when projects sheet or edit modal is open) -->
+    <button
+      v-show="!showProjects && !editingTask"
+      @click="editTask({})"
+      class="mobile-only fixed bottom-24 right-5 w-14 h-14 rounded-full bg-[#00d4ff] hover:bg-[#00a8cc] flex items-center justify-center text-[#1a1a1a] shadow-lg z-50 transition-all active:scale-95"
+      style="box-shadow: 0 4px 16px rgba(0, 212, 255, 0.5);"
+    >
+      <span class="text-2xl">⚡</span>
+    </button>
+
+    <!-- Bottom Navigation (mobile only) -->
+    <nav class="mobile-only fixed bottom-0 left-0 right-0 bg-[#1a1a1a]/95 backdrop-blur-sm border-t border-[rgba(255,255,255,0.06)] safe-bottom z-40">
+      <div class="flex justify-around py-2">
+        <!-- Inbox (tasks with no project) -->
+        <button
+          @click="currentTab = 'inbox'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="[
+            'mobile-nav-btn flex flex-col items-center gap-1 px-4 py-1 transition-colors',
+            currentTab === 'inbox' && filterLabel === null ? 'active text-[#00d4ff]' : 'text-[#666] hover:text-[#999]'
+          ]"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+          </svg>
+          <span class="text-[10px]">Inbox</span>
+        </button>
+
+        <!-- Today -->
+        <button
+          @click="currentTab = 'today'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="[
+            'mobile-nav-btn flex flex-col items-center gap-1 px-4 py-1 transition-colors',
+            currentTab === 'today' && filterLabel === null ? 'active text-[#00d4ff]' : 'text-[#666] hover:text-[#999]'
+          ]"
+        >
+          <div class="relative w-6 h-6">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="18" rx="2" stroke-width="1.5"/>
+              <path stroke-width="1.5" d="M3 10h18"/>
+            </svg>
+            <span class="absolute bottom-1 left-0 right-0 text-center text-[9px] font-bold leading-none">{{ new Date().getDate() }}</span>
+          </div>
+          <span class="text-[10px]">Today</span>
+        </button>
+
+        <!-- Upcoming -->
+        <button
+          @click="currentTab = 'upcoming'; filterProject = null; filterLabel = null; loadTasks()"
+          :class="[
+            'mobile-nav-btn flex flex-col items-center gap-1 px-4 py-1 transition-colors',
+            currentTab === 'upcoming' && filterLabel === null ? 'active text-[#00d4ff]' : 'text-[#666] hover:text-[#999]'
+          ]"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="18" rx="2" stroke-width="1.5"/>
+            <path stroke-width="1.5" d="M3 10h18"/>
+            <path stroke-width="1.5" d="M7 14h2M11 14h2M15 14h2M7 17h2M11 17h2"/>
+          </svg>
+          <span class="text-[10px]">Upcoming</span>
+        </button>
+
+        <!-- Projects -->
+        <button
+          @click="showProjects = true"
+          :class="[
+            'mobile-nav-btn flex flex-col items-center gap-1 px-4 py-1 transition-colors',
+            (filterProject !== null || filterLabel !== null) ? 'active text-[#00d4ff]' : 'text-[#666] hover:text-[#999]'
+          ]"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+          <span class="text-[10px]">Projects</span>
+        </button>
+
+      </div>
+    </nav>
+  </div>
+
+  <script>
+    // ============ Push Notification Management ============
+    
+    // Helper: Convert base64 to Uint8Array (for VAPID key)
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding)
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    }
+
+    // Helper: Get device name for identification
+    function getDeviceName() {
+      const ua = navigator.userAgent;
+      if (/iPhone/.test(ua)) return "iPhone";
+      if (/iPad/.test(ua)) return "iPad";
+      if (/Android/.test(ua)) return "Android";
+      if (/Mac/.test(ua)) return "Mac";
+      if (/Windows/.test(ua)) return "Windows";
+      return "Unknown Device";
+    }
+
+    // Push notification management
+    const pushManager = {
+      // Check if push is supported
+      isSupported() {
+        return 'serviceWorker' in navigator && 
+               'PushManager' in window &&
+               'Notification' in window;
+      },
+      
+      // Check if we're in standalone PWA mode (required for iOS)
+      isStandalone() {
+        return window.matchMedia('(display-mode: standalone)').matches ||
+               window.navigator.standalone === true;
+      },
+      
+      // Check current permission status
+      getPermissionStatus() {
+        if (!this.isSupported()) return 'unsupported';
+        return Notification.permission; // 'default', 'granted', 'denied'
+      },
+      
+      // Get existing subscription
+      async getSubscription() {
+        const registration = await navigator.serviceWorker.ready;
+        return await registration.pushManager.getSubscription();
+      },
+      
+      // Subscribe to push notifications
+      async subscribe(deviceName = null) {
+        console.log('[Push] Starting subscribe...');
+        if (!this.isSupported()) {
+          throw new Error('Push notifications not supported');
+        }
+        
+        // Request permission
+        console.log('[Push] Requesting permission...');
+        const permission = await Notification.requestPermission();
+        console.log('[Push] Permission result:', permission);
+        if (permission !== 'granted') {
+          throw new Error('Notification permission denied');
+        }
+        
+        // Get VAPID public key from server
+        console.log('[Push] Fetching VAPID key...');
+        const response = await fetch('/api/push/vapid-key');
+        const { publicKey } = await response.json();
+        console.log('[Push] Got VAPID key:', publicKey.substring(0, 20) + '...');
+        
+        // Convert base64 to Uint8Array
+        const applicationServerKey = urlBase64ToUint8Array(publicKey);
+        console.log('[Push] Converted key, length:', applicationServerKey.length);
+        
+        // Subscribe
+        console.log('[Push] Getting service worker registration...');
+        const registration = await navigator.serviceWorker.ready;
+        console.log('[Push] Got registration, subscribing to push...');
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,  // Required: must show notification
+          applicationServerKey
+        });
+        console.log('[Push] Got subscription:', subscription.endpoint.substring(0, 50) + '...');
+        
+        // Send subscription to backend
+        console.log('[Push] Sending to backend...');
+        const subJson = subscription.toJSON();
+        const backendResponse = await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            endpoint: subJson.endpoint,
+            keys: subJson.keys,
+            device_name: deviceName || getDeviceName()
+          })
+        });
+        console.log('[Push] Backend response:', backendResponse.status);
+        
+        return subscription;
+      },
+      
+      // Unsubscribe from push notifications
+      async unsubscribe() {
+        const subscription = await this.getSubscription();
+        if (subscription) {
+          // Tell backend
+          await fetch(`/api/push/unsubscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`, {
+            method: 'DELETE'
+          });
+          // Unsubscribe locally
+          await subscription.unsubscribe();
+        }
+      }
+    };
+
+    const { createApp, ref, computed, onMounted, watch } = Vue;
+
+    createApp({
+      setup() {
+        const tasks = ref([]);
+        const projects = ref([]);
+        const stats = ref({ overdue: 0, due_today: 0, total_tasks: 0, completed_today: 0, by_project: {} });
+        const newTask = ref('');
+        const currentTab = ref('today');
+        const filterProject = ref(null);
+        const filterLabel = ref(null);
+        const sortBy = ref('default'); // Set dynamically based on tab (today=default, upcoming/all=due, completed=recent)
+        const showProjects = ref(false);
+        const showLabels = ref(false);
+        const showHelp = ref(false);
+        const editingTask = ref(null);
+        const newSubtask = ref('');
+        const newComment = ref('');
+        const newLabel = ref('');
+        const isRefreshing = ref(false);
+        const touchStartY = ref(0);
+        const pullDistance = ref(0);
+
+        // Inline editor state (desktop)
+        const showInlineEditor = ref(false);
+        const inlineTask = ref({ content: '', description: '', due_date: null, priority: 1, project_id: null, labels: [] });
+        const showInlineDatePicker = ref(false);
+        const showInlinePriorityPicker = ref(false);
+
+        // Mobile edit modal picker states
+        const showMobileProjectPicker = ref(false);
+        const showMobileDatePicker = ref(false);
+        const showMobilePriorityPicker = ref(false);
+        const showMobileRepeatPicker = ref(false);
+        const showMobileLabels = ref(false);
+        const showMobileSubtasks = ref(false);
+        const showMobileComments = ref(false);
+
+        // Desktop accordion state
+        const desktopShowSubtasks = ref(false);
+        const desktopShowComments = ref(false);
+
+        // Push notification state
+        const pushSupported = ref(false);
+        const pushPermission = ref('default');
+        const pushSubscription = ref(null);
+        const isStandalone = ref(false);
+        const showNotificationSettings = ref(false);
+        const showMobileNotifications = ref(false);
+
+        const API = '/api';
+        
+        // Helper to get local date string (YYYY-MM-DD) in user's timezone
+        function getLocalDateString(date = new Date()) {
+          return date.toLocaleDateString('en-CA'); // en-CA gives YYYY-MM-DD format
+        }
+
+        // Get defer date based on type
+        function getDeferDate(type) {
+          const now = new Date();
+          const day = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+          
+          switch(type) {
+            case 'today':
+              return getLocalDateString(now);
+            case 'tomorrow':
+              return getLocalDateString(new Date(now.getTime() + 24*60*60*1000));
+            case 'later':
+              // Wednesday if today is Mon/Tue, otherwise +2 days
+              if (day <= 2) { // Sun, Mon, Tue
+                const wed = new Date(now);
+                wed.setDate(wed.getDate() + (3 - day)); // days until Wed
+                return getLocalDateString(wed);
+              }
+              return getLocalDateString(new Date(now.getTime() + 2*24*60*60*1000));
+            case 'weekend':
+              // Next Saturday
+              const sat = new Date(now);
+              const daysUntilSat = (6 - day + 7) % 7 || 7; // if today is Sat, next Sat
+              sat.setDate(sat.getDate() + daysUntilSat);
+              return getLocalDateString(sat);
+            case 'nextweek':
+              // Next Monday
+              const mon = new Date(now);
+              const daysUntilMon = (1 - day + 7) % 7 || 7; // if today is Mon, next Mon
+              mon.setDate(mon.getDate() + daysUntilMon);
+              return getLocalDateString(mon);
+            default:
+              return null;
+          }
+        }
+
+        // All tasks cache for computing filtered counts
+        const allTasksCache = ref([]);
+        
+        // Inbox count (tasks with no project)
+        const inboxCount = computed(() => {
+          return allTasksCache.value.filter(t => !t.completed && !t.project_id).length;
+        });
+
+        // All unique labels across incomplete tasks
+        const allLabels = computed(() => {
+          const labelSet = new Set();
+          allTasksCache.value.forEach(t => {
+            if (!t.completed && t.labels) {
+              t.labels.forEach(l => labelSet.add(l));
+            }
+          });
+          return [...labelSet].sort();
+        });
+
+        function labelTaskCount(label) {
+          return allTasksCache.value.filter(t => !t.completed && t.labels && t.labels.includes(label)).length;
+        }
+        
+        const tabs = computed(() => {
+          // If filtering by project or label, compute counts from cache
+          if (filterProject.value !== null || filterLabel.value !== null) {
+            let base = allTasksCache.value;
+            if (filterProject.value !== null) {
+              base = base.filter(t => t.project_id === filterProject.value);
+            }
+            if (filterLabel.value !== null) {
+              base = base.filter(t => t.labels && t.labels.includes(filterLabel.value));
+            }
+            const today = getLocalDateString();
+            const nextWeek = getLocalDateString(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+            
+            const todayCount = base.filter(t => !t.completed && (t.due_date === today || (t.due_date && t.due_date < today))).length;
+            const upcomingCount = base.filter(t => !t.completed && t.due_date && t.due_date > today && t.due_date <= nextWeek).length;
+            const allCount = base.filter(t => !t.completed).length;
+            const doneCount = base.filter(t => t.completed).length;
+            
+            return [
+              { id: 'today', label: 'Today', count: todayCount },
+              { id: 'upcoming', label: 'Upcoming', count: upcomingCount },
+              { id: 'all', label: 'All', count: allCount },
+              { id: 'completed', label: 'Done', count: doneCount }
+            ];
+          }
+          
+          // No filter - use global stats
+          return [
+            { id: 'today', label: 'Today', count: stats.value.due_today + stats.value.overdue },
+            { id: 'upcoming', label: 'Upcoming', count: stats.value.upcoming || 0 },
+            { id: 'all', label: 'All', count: stats.value.total_tasks },
+            { id: 'completed', label: 'Done', count: stats.value.total_completed || 0 }
+          ];
+        });
+
+        const filteredTasks = computed(() => {
+          let result = [...tasks.value];
+
+          if (filterProject.value !== null) {
+            result = result.filter(t => t.project_id === filterProject.value);
+          }
+
+          if (filterLabel.value !== null) {
+            result = result.filter(t => t.labels && t.labels.includes(filterLabel.value));
+          }
+
+          // Apply sorting
+          if (sortBy.value === 'due') {
+            result.sort((a, b) => {
+              if (!a.due_date && !b.due_date) return 0;
+              if (!a.due_date) return 1;
+              if (!b.due_date) return -1;
+              return a.due_date.localeCompare(b.due_date);
+            });
+          } else if (sortBy.value === 'priority') {
+            result.sort((a, b) => b.priority - a.priority);
+          } else if (sortBy.value === 'recent') {
+            result.sort((a, b) => b.created_at.localeCompare(a.created_at));
+          } else if (sortBy.value === 'alpha') {
+            result.sort((a, b) => a.content.localeCompare(b.content));
+          }
+          // 'default' keeps server order (priority + due date)
+
+          return result;
+        });
+
+        const overdueTasks = computed(() => {
+          if (currentTab.value !== 'today') return [];
+          return filteredTasks.value.filter(t => isOverdue(t));
+        });
+
+        const todayOnlyTasks = computed(() => {
+          if (currentTab.value !== 'today') return filteredTasks.value;
+          return filteredTasks.value.filter(t => !isOverdue(t));
+        });
+
+        const sortOptions = [
+          { id: 'default', label: 'Default' },
+          { id: 'due', label: 'Due Date' },
+          { id: 'priority', label: 'Priority' },
+          { id: 'recent', label: 'Recent' },
+          { id: 'alpha', label: 'A-Z' }
+        ];
+
+        // Computed view title/subtitle for desktop header
+        const currentViewTitle = computed(() => {
+          let title = '';
+          if (filterProject.value !== null) {
+            const project = projects.value.find(p => p.id === filterProject.value);
+            title = project?.name || 'Project';
+          } else {
+            switch (currentTab.value) {
+              case 'today': title = 'Today'; break;
+              case 'upcoming': title = 'Upcoming'; break;
+              case 'completed': title = 'Completed'; break;
+              default: title = 'Inbox';
+            }
+          }
+          if (filterLabel.value !== null) {
+            title += ` · @${filterLabel.value.replace('@', '')}`;
+          }
+          return title;
+        });
+
+        const currentViewSubtitle = computed(() => {
+          const count = filteredTasks.value.length;
+          if (count === 0) return 'No tasks';
+          if (count === 1) return '1 task';
+          return `${count} tasks`;
+        });
+
+        async function loadTasks() {
+          let url = `${API}/tasks?`;
+          if (currentTab.value === 'today') {
+            url += 'due=today&completed=false';
+          } else if (currentTab.value === 'upcoming') {
+            url += 'due=upcoming&completed=false';
+          } else if (currentTab.value === 'completed') {
+            url += 'completed=true';
+          } else if (currentTab.value === 'inbox') {
+            url += 'completed=false&no_project=true';
+          } else {
+            url += 'completed=false';
+          }
+
+          const res = await fetch(url);
+          let result = await res.json();
+          
+          // Client-side filter for inbox if API doesn't support no_project param
+          if (currentTab.value === 'inbox') {
+            result = result.filter(t => !t.project_id);
+          }
+          
+          tasks.value = result;
+        }
+        
+        async function loadAllTasksCache() {
+          // Load all tasks (including completed) for filtered count calculations
+          const res = await fetch(`${API}/tasks?include_completed=true`);
+          allTasksCache.value = await res.json();
+        }
+
+        async function loadProjects() {
+          const res = await fetch(`${API}/projects`);
+          projects.value = await res.json();
+        }
+
+        async function loadStats() {
+          const res = await fetch(`${API}/stats`);
+          stats.value = await res.json();
+        }
+
+        async function quickAdd() {
+          if (!newTask.value.trim()) return;
+
+          await fetch(`${API}/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: newTask.value,
+              due_date: currentTab.value === 'today' ? getLocalDateString() : null
+            })
+          });
+
+          newTask.value = '';
+          await Promise.all([loadTasks(), loadStats()]);
+        }
+
+        async function toggleComplete(task) {
+          const endpoint = task.completed ? 'uncomplete' : 'complete';
+          await fetch(`${API}/tasks/${task.id}/${endpoint}`, { method: 'POST' });
+          await Promise.all([loadTasks(), loadStats()]);
+        }
+
+        async function editTask(task) {
+          // Reset all mobile picker states
+          showMobileProjectPicker.value = false;
+          showMobileDatePicker.value = false;
+          showMobilePriorityPicker.value = false;
+          showMobileRepeatPicker.value = false;
+          showMobileLabels.value = false;
+          showMobileSubtasks.value = false;
+          showMobileComments.value = false;
+          desktopShowSubtasks.value = false;
+          desktopShowComments.value = false;
+
+          editingTask.value = {
+            ...task,
+            labels: task.labels || [],
+            subtasks: task.subtasks || [],
+            comments: []
+          };
+          // Load comments if editing existing task
+          if (task.id) {
+            try {
+              const res = await fetch(`${API}/tasks/${task.id}/comments`);
+              editingTask.value.comments = await res.json();
+            } catch (e) {
+              console.error('Failed to load comments', e);
+            }
+          }
+        }
+
+        async function saveTask() {
+          const task = editingTask.value;
+          if (!task.content?.trim()) return;
+
+          if (task.id) {
+            await fetch(`${API}/tasks/${task.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(task)
+            });
+          } else {
+            await fetch(`${API}/tasks`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(task)
+            });
+          }
+
+          editingTask.value = null;
+          await Promise.all([loadTasks(), loadStats()]);
+        }
+
+        async function deleteTask(id) {
+          if (!confirm('Delete this task?')) return;
+          await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+          editingTask.value = null;
+          await Promise.all([loadTasks(), loadStats()]);
+        }
+
+        // Save inline task (desktop quick add)
+        async function saveInlineTask() {
+          if (!inlineTask.value.content?.trim()) return;
+
+          await fetch(`${API}/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(inlineTask.value)
+          });
+
+          // Reset and close
+          inlineTask.value = { content: '', description: '', due_date: null, priority: 1, project_id: null, labels: [] };
+          showInlineEditor.value = false;
+          showInlineDatePicker.value = false;
+          showInlinePriorityPicker.value = false;
+          await Promise.all([loadTasks(), loadStats()]);
+        }
+
+        function projectTaskCount(projectId) {
+          // Use allTasksCache for accurate counts (not just current view)
+          return allTasksCache.value.filter(t => t.project_id === projectId && !t.completed).length;
+        }
+
+        function formatDate(dateStr, task) {
+          if (!dateStr) return '';
+          const date = new Date(dateStr + 'T00:00:00');
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+
+          if (date.getTime() === today.getTime()) return 'Today';
+          if (date.getTime() === tomorrow.getTime()) return 'Tomorrow';
+
+          const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          if (task && !task.completed && date < today) return `Overdue · ${formatted}`;
+          return formatted;
+        }
+
+        function isOverdue(task) {
+          if (!task.due_date || task.completed) return false;
+          const due = new Date(task.due_date + 'T00:00:00');
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          return due < today;
+        }
+
+        function isToday(task) {
+          if (!task.due_date) return false;
+          return task.due_date === getLocalDateString();
+        }
+
+        function formatCommentDate(dateStr) {
+          if (!dateStr) return '';
+          const date = new Date(dateStr);
+          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        }
+
+        function formatTime(timeStr) {
+          if (!timeStr) return '';
+          const [hours, minutes] = timeStr.split(':');
+          const h = parseInt(hours);
+          const ampm = h >= 12 ? 'pm' : 'am';
+          const h12 = h % 12 || 12;
+          return `${h12}:${minutes}${ampm}`;
+        }
+
+        // Subtask functions
+        async function addSubtask() {
+          if (!newSubtask.value.trim() || !editingTask.value?.id) return;
+          const res = await fetch(`${API}/tasks/${editingTask.value.id}/subtasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: newSubtask.value })
+          });
+          const subtask = await res.json();
+          editingTask.value.subtasks.push(subtask);
+          newSubtask.value = '';
+          await loadTasks();
+        }
+
+        async function toggleSubtask(subtask) {
+          await fetch(`${API}/tasks/${editingTask.value.id}/subtasks/${subtask.id}/toggle`, { method: 'POST' });
+          subtask.completed = !subtask.completed;
+          await loadTasks();
+        }
+
+        async function deleteSubtask(subtaskId) {
+          await fetch(`${API}/tasks/${editingTask.value.id}/subtasks/${subtaskId}`, { method: 'DELETE' });
+          editingTask.value.subtasks = editingTask.value.subtasks.filter(s => s.id !== subtaskId);
+          await loadTasks();
+        }
+
+        // Comment functions
+        async function addComment() {
+          if (!newComment.value.trim() || !editingTask.value?.id) return;
+          const res = await fetch(`${API}/tasks/${editingTask.value.id}/comments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: newComment.value, author: 'ryan' })
+          });
+          const comment = await res.json();
+          editingTask.value.comments.push(comment);
+          newComment.value = '';
+        }
+
+        async function deleteComment(commentId) {
+          await fetch(`${API}/tasks/${editingTask.value.id}/comments/${commentId}`, { method: 'DELETE' });
+          editingTask.value.comments = editingTask.value.comments.filter(c => c.id !== commentId);
+        }
+
+        // Label functions
+        function addLabel() {
+          if (!newLabel.value.trim()) return;
+          const label = newLabel.value.trim();
+          if (!editingTask.value.labels.includes(label)) {
+            editingTask.value.labels.push(label);
+          }
+          newLabel.value = '';
+        }
+
+        function removeLabel(label) {
+          editingTask.value.labels = editingTask.value.labels.filter(l => l !== label);
+        }
+
+        // Push notification functions
+        async function checkPushStatus() {
+          pushSupported.value = pushManager.isSupported();
+          isStandalone.value = pushManager.isStandalone();
+          pushPermission.value = pushManager.getPermissionStatus();
+          
+          if (pushSupported.value) {
+            try {
+              pushSubscription.value = await pushManager.getSubscription();
+            } catch (e) {
+              console.error('Failed to get push subscription:', e);
+            }
+          }
+        }
+        
+        async function subscribeToPush() {
+          console.log('[Push] subscribeToPush called');
+          // Show loading state
+          const btn = event?.target;
+          const originalText = btn?.textContent;
+          if (btn) btn.textContent = 'Enabling...';
+          
+          try {
+            const sub = await pushManager.subscribe();
+            console.log('[Push] Subscribe succeeded:', sub);
+            pushSubscription.value = sub;
+            await checkPushStatus(); // Refresh status
+            alert('✅ Notifications enabled!');
+          } catch (err) {
+            console.error('[Push] Subscribe failed:', err);
+            alert(`❌ Failed: ${err.message}\n\nCheck console for details.`);
+            if (btn) btn.textContent = originalText;
+          }
+        }
+        
+        async function unsubscribeFromPush() {
+          try {
+            await pushManager.unsubscribe();
+            pushSubscription.value = null;
+            alert('Notifications disabled');
+          } catch (err) {
+            console.error('Push unsubscribe failed:', err);
+          }
+        }
+        
+        async function sendTestNotification() {
+          try {
+            const res = await fetch('/api/push/test', { method: 'POST' });
+            const data = await res.json();
+            if (data.sent > 0) {
+              alert('Test notification sent!');
+            } else {
+              alert('No active subscriptions');
+            }
+          } catch (err) {
+            alert('Failed to send test');
+          }
+        }
+
+        // Pull to refresh
+        function handleTouchStart(e) {
+          if (window.scrollY === 0) {
+            touchStartY.value = e.touches[0].clientY;
+          }
+        }
+
+        function handleTouchMove(e) {
+          if (touchStartY.value === 0) return;
+          pullDistance.value = e.touches[0].clientY - touchStartY.value;
+        }
+
+        async function handleTouchEnd() {
+          if (pullDistance.value > 80 && !isRefreshing.value) {
+            isRefreshing.value = true;
+            await Promise.all([loadTasks(), loadProjects(), loadStats()]);
+            isRefreshing.value = false;
+          }
+          touchStartY.value = 0;
+          pullDistance.value = 0;
+        }
+
+        // Keyboard shortcuts
+        function handleKeydown(e) {
+          // Don't trigger if typing in an input
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+            return;
+          }
+
+          // 'n' - new task
+          if (e.key === 'n' && !editingTask.value) {
+            e.preventDefault();
+            editTask({});
+          }
+          // 'r' - refresh
+          if (e.key === 'r' && !editingTask.value) {
+            e.preventDefault();
+            isRefreshing.value = true;
+            Promise.all([loadTasks(), loadProjects(), loadStats()]).then(() => {
+              isRefreshing.value = false;
+            });
+          }
+          // Escape - close modal
+          if (e.key === 'Escape' && editingTask.value) {
+            editingTask.value = null;
+          }
+          // 1-4 - switch tabs
+          if (['1','2','3','4'].includes(e.key) && !editingTask.value) {
+            const tabIds = ['today', 'upcoming', 'all', 'completed'];
+            currentTab.value = tabIds[parseInt(e.key) - 1];
+          }
+        }
+
+        watch(currentTab, (newTab) => {
+          // Set default sort based on tab
+          if (newTab === 'today') {
+            sortBy.value = 'default'; // Priority makes sense for today
+          } else if (newTab === 'upcoming' || newTab === 'all') {
+            sortBy.value = 'due'; // Due date for upcoming/all
+          } else if (newTab === 'completed') {
+            sortBy.value = 'recent'; // Recent completions first
+          }
+          loadTasks();
+        });
+
+        onMounted(async () => {
+          // Register service worker for push notifications
+          if ('serviceWorker' in navigator) {
+            try {
+              const registration = await navigator.serviceWorker.register('/sw.js');
+              console.log('[SW] Registered:', registration.scope);
+            } catch (err) {
+              console.error('[SW] Registration failed:', err);
+            }
+          }
+          
+          await Promise.all([loadTasks(), loadProjects(), loadStats(), loadAllTasksCache()]);
+          // Add keyboard listener
+          window.addEventListener('keydown', handleKeydown);
+          // Check push notification status
+          await checkPushStatus();
+        });
+        
+        // Reload cache when project or label filter changes
+        watch(filterProject, loadAllTasksCache);
+        watch(filterLabel, loadAllTasksCache);
+
+        return {
+          tasks, projects, stats, newTask, currentTab, filterProject, filterLabel,
+          showProjects, showLabels, showHelp, editingTask, tabs, filteredTasks, overdueTasks, todayOnlyTasks,
+          newSubtask, newComment, newLabel, isRefreshing,
+          sortBy, sortOptions, inboxCount, allLabels, labelTaskCount,
+          // Desktop inline editor
+          showInlineEditor, inlineTask, showInlineDatePicker, showInlinePriorityPicker,
+          currentViewTitle, currentViewSubtitle,
+          // Mobile edit modal pickers
+          showMobileProjectPicker, showMobileDatePicker, showMobilePriorityPicker,
+          showMobileRepeatPicker, showMobileLabels, showMobileSubtasks, showMobileComments,
+          desktopShowSubtasks, desktopShowComments,
+          // Push notifications
+          pushSupported, pushPermission, pushSubscription, isStandalone, showNotificationSettings, showMobileNotifications,
+          subscribeToPush, unsubscribeFromPush, sendTestNotification,
+          // Functions
+          quickAdd, toggleComplete, editTask, saveTask, deleteTask, saveInlineTask,
+          projectTaskCount, formatDate, formatTime, isOverdue, isToday, formatCommentDate,
+          addSubtask, toggleSubtask, deleteSubtask,
+          addComment, deleteComment,
+          addLabel, removeLabel,
+          handleTouchStart, handleTouchMove, handleTouchEnd,
+          loadTasks,
+          getDeferDate
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
