@@ -1,0 +1,17 @@
+services:
+  delega:
+    build: .
+    container_name: delega
+    restart: unless-stopped
+    ports:
+      - "${DELEGA_PORT:-18890}:18890"
+    environment:
+      DELEGA_HOST: 0.0.0.0
+      DELEGA_PORT: 18890
+      DELEGA_DB_PATH: ${DELEGA_DB_PATH:-/app/data/delega.db}
+      DELEGA_REQUIRE_AUTH: ${DELEGA_REQUIRE_AUTH:-false}
+      DELEGA_CORS_ORIGINS: ${DELEGA_CORS_ORIGINS:-*}
+    volumes:
+      - ./data:/app/data
+      # Optional: mount your own VAPID keys if you use push notifications
+      # - ./backend/vapid_keys.json:/app/backend/vapid_keys.json:ro

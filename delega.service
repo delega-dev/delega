@@ -1,0 +1,16 @@
+[Unit]
+Description=Delega Task Manager
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+Group=YOUR_USER
+WorkingDirectory=/path/to/delega/backend
+Environment=PATH=/path/to/delega/backend/.venv/bin:/usr/bin
+ExecStart=/path/to/delega/backend/.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18890
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
