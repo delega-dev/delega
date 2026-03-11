@@ -113,8 +113,11 @@ check_pattern "Generic bearer tokens" "Bearer [a-zA-Z0-9_-]{20,}" warn
 echo "--- Legacy Branding ---"
 check_pattern "TaskPine references" "[Tt]ask[Pp]ine" error
 check_pattern "Flux as product name" "\"Flux\"\|Flux Task\|Flux API\|Flux Capacitor" error
+check_pattern "Legacy FLUX_ env vars" "FLUX_HOST\|FLUX_PORT\|FLUX_DB\|FLUX_API_URL\|FLUX_DATABASE" error
 check_pattern "BTTF references" "Back to the Future\|DeLorean\|1\.21 gigawatt\|Hill Valley\|BTTF" error
 check_pattern "Old org references" "delegadev/\|twinpines/delega" error
+check_pattern "Internal org: Twin Pines" "Twin Pines" error
+check_pattern "Todoist in code comments" "Todoist-style\|Todoist-inspired\|like Todoist\|Todoist sync\|todoist_id\|todoist_updated" error
 
 # --- Blocked Files ---
 echo "--- Blocked Files ---"
@@ -125,6 +128,18 @@ check_file_exists "Legacy: old icons" "frontend/assets/icon-512-old.png"
 check_file_exists "Secrets: .env file" ".env"
 check_file_exists "Secrets: vapid_keys.json" "backend/vapid_keys.json"
 check_file_exists "Secrets: vapid_keys.json" "vapid_keys.json"
+
+# --- Git History ---
+echo "--- Git History ---"
+if git rev-parse --git-dir &>/dev/null; then
+    BAD_AUTHORS=$(git log --format="%ae" | sort -u | grep -iE "mcmillan|ryan|personal|clawdbot" || true)
+    if [ -n "$BAD_AUTHORS" ]; then
+        echo -e "${RED}FAIL${NC} Personal email in git history"
+        echo "$BAD_AUTHORS" | sed 's/^/  /'
+        ERRORS=$((ERRORS + 1))
+        echo ""
+    fi
+fi
 
 # --- Code Quality ---
 echo "--- Code Quality ---"
