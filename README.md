@@ -239,19 +239,15 @@ Don't want to self-host? Use [api.delega.dev](https://delega.dev):
 
 Same API, same MCP tools. Just point `DELEGA_API_URL` at `https://api.delega.dev`.
 
-## Comparison
+## Why Delega
 
-| Feature | Delega | AgentTask.io | Todoist API | Linear API |
-|---------|--------|-------------|-------------|------------|
-| Built for agents | ✅ | ✅ | ❌ | ❌ |
-| Agent identity | ✅ | ❌ | ❌ | ❌ |
-| Delegation chains | ✅ | ❌ | ❌ | ❌ |
-| MCP support | ✅ | ✅ | ❌ | ❌ |
-| REST API | ✅ | ❌ | ✅ | ✅ |
-| Self-hostable | ✅ | ❌ | ❌ | ❌ |
-| Open source | ✅ | ❌ | ❌ | ❌ |
-| Webhooks | ✅ | ❌ | ✅ | ✅ |
-| Per-task pricing | ✅ | ❌ (per-seat) | ❌ (per-seat) | ❌ (per-seat) |
+Most task APIs (Todoist, Linear, Asana) were built for humans. Delega was built for agents from day one:
+
+- **Agent identity** is a first-class concept, not a bolt-on
+- **Delegation chains** let agents hand off work to other agents with full traceability
+- **Per-task pricing** instead of per-seat (agents aren't employees)
+- **Self-hostable** with zero external dependencies (SQLite, no Redis, no queue)
+- **MCP + REST** so it works with any agent framework
 
 ## Tech Stack
 
