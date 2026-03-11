@@ -24,7 +24,7 @@ check_pattern() {
         --include="*.py" --include="*.md" --include="*.html" --include="*.json" \
         --include="*.yml" --include="*.yaml" --include="*.toml" --include="*.sh" \
         --include="*.ts" --include="*.js" --include="*.css" --include="*.txt" \
-        --include="*.cfg" --include="*.service" --include="*.env*" \
+        --include="*.cfg" --include="*.service" --include="*.env*" --include="LICENSE" \
         . 2>/dev/null | grep -v ".git/" | grep -v "__pycache__" | grep -v ".venv/" | \
         grep -v "node_modules/" | grep -v "scripts/release-check.sh" || true)
     
