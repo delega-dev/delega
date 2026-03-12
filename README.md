@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Task infrastructure for AI agents.</strong><br>
-  MCP + REST API. Agent-to-agent delegation. Open source.
+  API + MCP + CLI. Agent-to-agent delegation. Open source.
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 
 Delega is the task backend your AI agents are missing. Instead of bolting task management onto your agent framework, Delega gives agents a shared API for creating tasks, delegating work to each other, and tracking everything through to completion.
 
-It works with any agent framework (CrewAI, LangGraph, OpenAI Agents SDK) via REST, or natively with Claude Desktop, Cursor, and other MCP clients via the [delega-mcp](https://github.com/delega-dev/delega-mcp) package.
+It works with any agent framework (CrewAI, LangGraph, OpenAI Agents SDK) via REST, from your terminal with the [CLI](https://github.com/delega-dev/delega-cli), or natively with Claude Desktop, Cursor, and other MCP clients via the [delega-mcp](https://github.com/delega-dev/delega-mcp) package.
 
 **Self-hosted** (free, forever) or **hosted** at [api.delega.dev](https://delega.dev).
 
@@ -72,6 +72,18 @@ API is live at `http://localhost:18890`. Interactive docs at `/docs`.
 cp .env.example .env
 docker compose up --build -d
 ```
+
+### CLI
+
+```bash
+npm install -g delega-cli
+delega login
+delega tasks create "Research competitor pricing" --priority 3
+delega tasks list
+delega agents list
+```
+
+See [delega-cli](https://github.com/delega-dev/delega-cli) for all commands.
 
 ### MCP (Claude Desktop, Cursor, etc.)
 
@@ -232,10 +244,9 @@ Don't want to self-host? Use [api.delega.dev](https://delega.dev):
 
 | Plan | Tasks/month | Price |
 |------|------------|-------|
-| Free | 1,000 | $0 |
-| Pro | 50,000 | $20/mo |
-| Scale | 500,000 | $99/mo |
-| Usage | Unlimited | $0.001/task |
+| Free | 1,000 | $0 (2 agents) |
+| Pro | 50,000 | $20/mo (unlimited agents) |
+| Scale | 500,000 | $99/mo (99.9% SLA) |
 
 Same API, same MCP tools. Just point `DELEGA_API_URL` at `https://api.delega.dev`.
 
@@ -254,6 +265,7 @@ Most task APIs (Todoist, Linear, Asana) were built for humans. Delega was built 
 - **Backend**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
 - **Database**: [SQLite](https://sqlite.org/) via SQLAlchemy (Postgres supported)
 - **Frontend**: Vue.js 3 + Tailwind CSS (PWA)
+- **CLI**: [delega-cli](https://github.com/delega-dev/delega-cli) (TypeScript)
 - **MCP**: [delega-mcp](https://github.com/delega-dev/delega-mcp) (TypeScript)
 - **Dedup**: scikit-learn TF-IDF (local, zero API cost)
 
