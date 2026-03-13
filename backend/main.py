@@ -21,6 +21,8 @@ import hmac
 import httpx
 import logging
 import threading
+import ipaddress
+from urllib.parse import urlparse
 
 from pywebpush import webpush, WebPushException
 
@@ -28,6 +30,7 @@ logger = logging.getLogger("delega")
 
 # ============ Config from env ============
 REQUIRE_AUTH = os.environ.get("DELEGA_REQUIRE_AUTH", "").lower() in ("true", "1", "yes")
+MAX_JSON_BODY_BYTES = int(os.environ.get("DELEGA_MAX_BODY_BYTES", "65536"))
 CORS_ORIGINS = [
     o.strip() for o in
     os.environ.get("DELEGA_CORS_ORIGINS", "http://localhost:18890,http://localhost:5173,http://127.0.0.1:18890").split(",")
@@ -97,6 +100,51 @@ _rate_limiter = _RateLimiter()
 _LIMITS = {"read": 60, "write": 30, "push": 10}
 
 
+def validate_webhook_url(url: str) -> Optional[str]:
+    """Reject obvious SSRF targets for webhook delivery."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "Invalid webhook URL"
+
+    if parsed.scheme not in ("http", "https"):
+        return "Webhook URL must use http or https"
+
+    if parsed.username or parsed.password:
+        return "Webhook URL must not include credentials"
+
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return "Webhook URL must include a host"
+
+    if (
+        host == "localhost"
+        or host.endswith(".local")
+        or host.endswith(".internal")
+        or host.endswith(".home.arpa")
+        or host.endswith(".cluster.local")
+        or host == "metadata.google.internal"
+    ):
+        return "Webhook URL cannot point to internal addresses"
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        return "Webhook URL cannot point to internal addresses"
+
+    return None
+
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
@@ -125,6 +173,63 @@ async def rate_limit_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def body_size_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.method.upper() in ("POST", "PUT", "PATCH"):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_JSON_BODY_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": f"Request body too large (max {MAX_JSON_BODY_BYTES} bytes)"},
+                    )
+            except ValueError:
+                pass
+
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def auth_gate_middleware(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    request.state.current_agent_id = None
+    x_agent_key = request.headers.get("X-Agent-Key")
+
+    if not x_agent_key:
+        if REQUIRE_AUTH:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)"},
+            )
+        return await call_next(request)
+
+    db = SessionLocal()
+    try:
+        agent = db.query(models.Agent).filter(
+            models.Agent.api_key == x_agent_key,
+            models.Agent.active == True,
+        ).first()
+        if not agent:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or inactive agent API key"},
+            )
+        agent.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+        request.state.current_agent_id = agent.id
+    except Exception as exc:
+        db.rollback()
+        logger.error("Authentication middleware error: %s", exc)
+        return JSONResponse(status_code=500, content={"detail": "Authentication error"})
+    finally:
+        db.close()
+
+    return await call_next(request)
+
+
 # ============ Health Check ============
 
 @app.get("/health")
@@ -135,6 +240,7 @@ def health_check():
 # ============ Agent Auth Dependency ============
 
 def get_current_agent(
+    request: Request,
     x_agent_key: Optional[str] = Header(None, alias="X-Agent-Key"),
     db: Session = Depends(get_db),
 ) -> Optional[models.Agent]:
@@ -143,6 +249,15 @@ def get_current_agent(
     When DELEGA_REQUIRE_AUTH=true, key is mandatory on all /api/* routes.
     Otherwise returns None if no key provided (backward compat).
     """
+    current_agent_id = getattr(request.state, "current_agent_id", None)
+    if current_agent_id is not None:
+        agent = db.query(models.Agent).filter(
+            models.Agent.id == current_agent_id,
+            models.Agent.active == True,
+        ).first()
+        if agent:
+            return agent
+
     if not x_agent_key:
         if REQUIRE_AUTH:
             raise HTTPException(status_code=401, detail="X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)")
@@ -360,7 +475,7 @@ def agent_to_dict(agent) -> dict:
     return {"id": agent.id, "name": agent.name, "display_name": agent.display_name}
 
 
-@app.get("/api/webhooks", response_model=list[schemas.Webhook])
+@app.get("/api/webhooks", response_model=list[schemas.WebhookPublic])
 def list_webhooks(
     db: Session = Depends(get_db),
     agent: Optional[models.Agent] = Depends(get_current_agent),
@@ -372,7 +487,7 @@ def list_webhooks(
     return query.order_by(models.Webhook.created_at).all()
 
 
-@app.post("/api/webhooks", response_model=schemas.Webhook)
+@app.post("/api/webhooks", response_model=schemas.WebhookPublic)
 def create_webhook(
     webhook: schemas.WebhookCreate,
     db: Session = Depends(get_db),
@@ -389,6 +504,11 @@ def create_webhook(
                 status_code=400,
                 detail=f"Invalid event '{event}'. Valid events: {schemas.VALID_WEBHOOK_EVENTS}"
             )
+    url_error = validate_webhook_url(webhook.url)
+    if url_error:
+        raise HTTPException(status_code=400, detail=url_error)
+    if webhook.secret is not None and len(webhook.secret) > 256:
+        raise HTTPException(status_code=400, detail="Webhook secret must be at most 256 characters")
 
     db_webhook = models.Webhook(
         agent_id=agent.id,
@@ -402,7 +522,7 @@ def create_webhook(
     return db_webhook
 
 
-@app.put("/api/webhooks/{webhook_id}", response_model=schemas.Webhook)
+@app.put("/api/webhooks/{webhook_id}", response_model=schemas.WebhookPublic)
 def update_webhook(
     webhook_id: int,
     update: schemas.WebhookUpdate,
@@ -425,6 +545,12 @@ def update_webhook(
         for event in update_data["events"]:
             if event not in schemas.VALID_WEBHOOK_EVENTS:
                 raise HTTPException(status_code=400, detail=f"Invalid event '{event}'")
+    if "url" in update_data:
+        url_error = validate_webhook_url(update_data["url"])
+        if url_error:
+            raise HTTPException(status_code=400, detail=url_error)
+    if "secret" in update_data and update_data["secret"] is not None and len(update_data["secret"]) > 256:
+        raise HTTPException(status_code=400, detail="Webhook secret must be at most 256 characters")
     
     for key, value in update_data.items():
         setattr(wh, key, value)
