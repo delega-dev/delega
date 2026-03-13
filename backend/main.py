@@ -587,7 +587,7 @@ def list_tasks(
     
     return query.order_by(
         models.Task.completed,
-        models.Task.priority.desc(),
+        models.Task.priority.asc(),
         models.Task.due_date.nulls_last(),
         models.Task.created_at.desc()
     ).all()
