@@ -272,6 +272,19 @@ class Webhook(WebhookBase):
         from_attributes = True
 
 
+class WebhookPublic(BaseModel):
+    id: int
+    agent_id: int
+    url: str
+    events: list[str]
+    active: bool
+    failure_count: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class WebhookDelivery(BaseModel):
     id: int
     webhook_id: int

@@ -227,6 +227,14 @@ curl -X POST http://localhost:18890/api/agents \
 
 Then pass the key on every request: `X-Agent-Key: dlg_...`
 
+With `DELEGA_REQUIRE_AUTH=true`, the server now enforces authentication on every `/api/*` route, not just the subset of handlers that explicitly requested the auth dependency.
+
+Additional hardening in this repo:
+
+- Write requests larger than `64 KiB` are rejected early.
+- Webhook URLs are validated to reject localhost, link-local, and other obvious internal targets.
+- Webhook secrets are accepted on create/update, but they are not echoed back in normal API responses.
+
 ### Deployment
 
 Delega is a single Python process with a SQLite file. Deploy it however you want:
