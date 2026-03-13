@@ -28,6 +28,6 @@ EXPOSE 18890
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:18890/health')" || exit 1
 
-# Start server: migrations run via main.py on first start (SQLAlchemy creates tables)
-# Then 001_add_agents.py adds agent-specific schema additions
-CMD ["sh", "-c", "cd /app && python -c 'import sys; sys.path.insert(0,\"/app\"); from backend.database import engine; from backend.models import Base; Base.metadata.create_all(bind=engine)' && python /app/backend/migrations/001_add_agents.py && python /app/backend/main.py"]
+# Start server: main.py creates all tables via SQLAlchemy on startup,
+# then migration adds agent columns. We chain them so tables exist before migration runs.
+CMD ["sh", "-c", "cd /app/backend && python -c 'from database import engine; from models import Base; Base.metadata.create_all(bind=engine)' && python /app/backend/migrations/001_add_agents.py && python /app/backend/main.py"]
