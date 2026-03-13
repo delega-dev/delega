@@ -43,7 +43,7 @@ jobs:
 
       - name: Verify container starts
         run: |
-          docker run -d --name delega-test -p 8765:8765 -e SKIP_MIGRATIONS=1 delega:test
-          sleep 5
-          curl -sf http://localhost:8765/health || (docker logs delega-test && exit 1)
+          docker run -d --name delega-test -p 18890:18890 -v /tmp/delega-test:/app/data delega:test
+          sleep 10
+          curl -sf http://localhost:18890/health || (docker logs delega-test && exit 1)
           docker stop delega-test

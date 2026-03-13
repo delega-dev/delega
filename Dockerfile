@@ -28,5 +28,5 @@ EXPOSE 18890
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:18890/health')" || exit 1
 
-# Run migration then start server
-CMD ["sh", "-c", "python /app/backend/migrations/001_add_agents.py && python /app/backend/main.py"]
+# Run migration then start server (SKIP_MIGRATIONS=1 to skip in CI)
+CMD ["sh", "-c", "if [ \"$SKIP_MIGRATIONS\" != \"1\" ]; then python /app/backend/migrations/001_add_agents.py; fi && python /app/backend/main.py"]
