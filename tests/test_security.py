@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import os
 import secrets
@@ -14,11 +15,13 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 
-def load_test_stack(db_path: Path, require_auth: bool):
+def load_test_stack(db_path: Path, require_auth):
     os.environ["DELEGA_DATABASE_URL"] = f"sqlite:///{db_path}"
     os.environ["DELEGA_MAX_BODY_BYTES"] = "1024"
-    if require_auth:
+    if require_auth is True:
         os.environ["DELEGA_REQUIRE_AUTH"] = "true"
+    elif require_auth is False:
+        os.environ["DELEGA_REQUIRE_AUTH"] = "false"
     else:
         os.environ.pop("DELEGA_REQUIRE_AUTH", None)
 
@@ -28,7 +31,7 @@ def load_test_stack(db_path: Path, require_auth: bool):
     database = importlib.import_module("database")
     models = importlib.import_module("models")
     main = importlib.import_module("main")
-    client = TestClient(main.app)
+    client = TestClient(main.app, base_url="http://localhost", client=("127.0.0.1", 50000))
     return database, models, main, client
 
 
@@ -122,6 +125,22 @@ class SecurityHardeningTests(BaseSecurityTestCase):
             self.assertEqual(response.status_code, 401, path)
             self.assertIn("X-Agent-Key", response.text)
 
+    def test_loopback_can_bootstrap_first_agent_without_key(self):
+        db = self.database.SessionLocal()
+        db.query(self.models.Agent).delete()
+        db.commit()
+        db.close()
+
+        response = self.client.post(
+            "/api/agents",
+            json={"name": "bootstrap-admin", "display_name": "Bootstrap Admin"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["is_admin"])
+        self.assertTrue(body["api_key"].startswith("dlg_"))
+
     def test_rejects_internal_webhook_targets(self):
         response = self.client.post(
             "/api/webhooks",
@@ -162,6 +181,59 @@ class SecurityHardeningTests(BaseSecurityTestCase):
         )
 
         self.assertEqual(response.status_code, 413)
+
+    def test_rejects_streamed_write_bodies_without_content_length(self):
+        chunks = [
+            b'{"content":"',
+            b'x' * 1500,
+            b'","description":"',
+            b'y' * 1500,
+            b'"}',
+        ]
+        messages = [
+            {"type": "http.request", "body": chunk, "more_body": i < len(chunks) - 1}
+            for i, chunk in enumerate(chunks)
+        ]
+        sent_messages = []
+
+        async def receive():
+            if messages:
+                return messages.pop(0)
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent_messages.append(message)
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/tasks",
+            "raw_path": b"/api/tasks",
+            "query_string": b"",
+            "headers": [
+                (b"host", b"localhost"),
+                (b"x-agent-key", self.api_key.encode()),
+                (b"content-type", b"application/json"),
+            ],
+            "client": ("127.0.0.1", 50000),
+            "server": ("localhost", 80),
+            "root_path": "",
+        }
+
+        asyncio.run(self.main.app(scope, receive, send))
+
+        start = next(message for message in sent_messages if message["type"] == "http.response.start")
+        body_chunks = [
+            message.get("body", b"")
+            for message in sent_messages
+            if message["type"] == "http.response.body"
+        ]
+
+        self.assertEqual(start["status"], 413)
+        self.assertIn(b"Request body too large", b"".join(body_chunks))
 
     def test_non_admin_agents_cannot_use_admin_routes(self):
         worker_key, worker_id = self.create_agent(is_admin=False)
@@ -264,6 +336,15 @@ class OpenModeCompatibilityTests(BaseSecurityTestCase):
         body = stats_res.json()
         self.assertEqual(body["total_tasks"], 1)
         self.assertIn("Operations", body["by_project"])
+
+
+class DefaultAuthModeTests(BaseSecurityTestCase):
+    require_auth = None
+
+    def test_auth_is_required_when_env_is_unset(self):
+        response = self.client.get("/api/tasks")
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("X-Agent-Key", response.text)
 
 
 if __name__ == "__main__":

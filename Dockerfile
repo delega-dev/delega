@@ -19,6 +19,7 @@ COPY backend/migrations /app/backend/migrations
 # Supports both DELEGA_* and legacy FLUX_* for backward compat
 ENV DELEGA_HOST=0.0.0.0 \
     DELEGA_PORT=18890 \
+    DELEGA_REQUIRE_AUTH=true \
     DELEGA_DB_PATH=/app/data/delega.db
 
 VOLUME /app/data
