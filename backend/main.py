@@ -31,6 +31,7 @@ logger = logging.getLogger("delega")
 # ============ Config from env ============
 REQUIRE_AUTH = os.environ.get("DELEGA_REQUIRE_AUTH", "").lower() in ("true", "1", "yes")
 MAX_JSON_BODY_BYTES = int(os.environ.get("DELEGA_MAX_BODY_BYTES", "65536"))
+KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "120000"))
 CORS_ORIGINS = [
     o.strip() for o in
     os.environ.get("DELEGA_CORS_ORIGINS", "http://localhost:18890,http://localhost:5173,http://127.0.0.1:18890").split(",")
@@ -145,6 +146,128 @@ def validate_webhook_url(url: str) -> Optional[str]:
     return None
 
 
+def generate_agent_api_key() -> str:
+    return f"dlg_{secrets.token_urlsafe(32)}"
+
+
+def key_prefix(api_key: str) -> str:
+    return api_key[:12] + "..."
+
+
+def derive_key_lookup(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:32]
+
+
+def derive_key_hash(api_key: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        api_key.encode("utf-8"),
+        salt.encode("utf-8"),
+        KEY_DERIVE_ITERATIONS,
+    ).hex()
+
+
+def create_agent_key_material(api_key: str) -> dict[str, str]:
+    salt = secrets.token_hex(16)
+    return {
+        "key_hash": derive_key_hash(api_key, salt),
+        "key_lookup": derive_key_lookup(api_key),
+        "key_salt": salt,
+        "key_prefix": key_prefix(api_key),
+    }
+
+
+def migrate_agent_key(agent: models.Agent, api_key: str) -> None:
+    material = create_agent_key_material(api_key)
+    agent.key_hash = material["key_hash"]
+    agent.key_lookup = material["key_lookup"]
+    agent.key_salt = material["key_salt"]
+    agent.key_prefix = material["key_prefix"]
+    agent.api_key = f"migrated_{agent.id}"
+
+
+def authenticate_agent_key(db: Session, api_key: str) -> Optional[models.Agent]:
+    lookup = derive_key_lookup(api_key)
+    agent = db.query(models.Agent).filter(
+        models.Agent.key_lookup == lookup,
+        models.Agent.active == True,
+    ).first()
+    if agent:
+        if not agent.key_salt:
+            migrate_agent_key(agent, api_key)
+            db.commit()
+            db.refresh(agent)
+            return agent
+        if derive_key_hash(api_key, agent.key_salt) == agent.key_hash:
+            return agent
+        return None
+
+    agent = db.query(models.Agent).filter(
+        models.Agent.api_key == api_key,
+        models.Agent.active == True,
+    ).first()
+    if not agent:
+        return None
+
+    migrate_agent_key(agent, api_key)
+    db.commit()
+    db.refresh(agent)
+    return agent
+
+
+def is_admin_agent(agent: Optional[models.Agent]) -> bool:
+    return bool(agent and agent.is_admin)
+
+
+def require_authenticated_agent(agent: Optional[models.Agent], detail: str = "X-Agent-Key required") -> models.Agent:
+    if not agent:
+        raise HTTPException(status_code=401, detail=detail)
+    return agent
+
+
+def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agent key required") -> models.Agent:
+    current = require_authenticated_agent(agent)
+    if not current.is_admin:
+        raise HTTPException(status_code=403, detail=detail)
+    return current
+
+
+def apply_task_scope(query, agent: Optional[models.Agent]):
+    if agent is None or is_admin_agent(agent):
+        return query
+    return query.filter(
+        or_(
+            models.Task.created_by_agent_id == agent.id,
+            models.Task.assigned_to_agent_id == agent.id,
+            models.Task.completed_by_agent_id == agent.id,
+        )
+    )
+
+
+def can_mutate_task(task: models.Task, agent: Optional[models.Agent]) -> bool:
+    if agent is None or is_admin_agent(agent):
+        return True
+    return task.created_by_agent_id == agent.id or task.assigned_to_agent_id == agent.id
+
+
+def get_task_for_agent(
+    db: Session,
+    task_id: int,
+    agent: Optional[models.Agent],
+    *,
+    require_mutation: bool = False,
+) -> models.Task:
+    task = apply_task_scope(
+        db.query(models.Task).filter(models.Task.id == task_id),
+        agent,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if require_mutation and not can_mutate_task(task, agent):
+        raise HTTPException(status_code=403, detail="This agent cannot modify that task")
+    return task
+
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
@@ -208,10 +331,7 @@ async def auth_gate_middleware(request: Request, call_next):
 
     db = SessionLocal()
     try:
-        agent = db.query(models.Agent).filter(
-            models.Agent.api_key == x_agent_key,
-            models.Agent.active == True,
-        ).first()
+        agent = authenticate_agent_key(db, x_agent_key)
         if not agent:
             return JSONResponse(
                 status_code=401,
@@ -262,10 +382,7 @@ def get_current_agent(
         if REQUIRE_AUTH:
             raise HTTPException(status_code=401, detail="X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)")
         return None
-    agent = db.query(models.Agent).filter(
-        models.Agent.api_key == x_agent_key,
-        models.Agent.active == True,
-    ).first()
+    agent = authenticate_agent_key(db, x_agent_key)
     if not agent:
         raise HTTPException(status_code=401, detail="Invalid or inactive agent API key")
     # Update last_seen
@@ -277,33 +394,54 @@ def get_current_agent(
 # ============ Agents ============
 
 @app.get("/api/agents", response_model=list[schemas.AgentPublic])
-def list_agents(db: Session = Depends(get_db)):
+def list_agents(
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """List all registered agents (without API keys)."""
+    require_admin_agent(agent, "Only admin agent keys can list agents")
     return db.query(models.Agent).order_by(models.Agent.name).all()
 
 
 @app.post("/api/agents", response_model=schemas.Agent)
-def register_agent(agent: schemas.AgentCreate, db: Session = Depends(get_db)):
+def register_agent(
+    agent: schemas.AgentCreate,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Register a new agent. Returns the agent with its API key (shown only once at creation)."""
+    existing_agent_count = db.query(models.Agent).count()
+    if existing_agent_count > 0:
+        require_admin_agent(current_agent, "Only admin agent keys can create agents")
     # Check for duplicate name
     existing = db.query(models.Agent).filter(models.Agent.name == agent.name).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Agent '{agent.name}' already exists")
     
-    api_key = f"dlg_{secrets.token_urlsafe(32)}"
+    api_key = generate_agent_api_key()
+    key_material = create_agent_key_material(api_key)
     db_agent = models.Agent(
         **agent.model_dump(),
-        api_key=api_key,
+        api_key=f"pending_{secrets.token_hex(8)}",
+        is_admin=existing_agent_count == 0,
+        **key_material,
     )
     db.add(db_agent)
     db.commit()
     db.refresh(db_agent)
+    db_agent.api_key = api_key
     return db_agent
 
 
 @app.get("/api/agents/{agent_id}", response_model=schemas.AgentPublic)
-def get_agent(agent_id: int, db: Session = Depends(get_db)):
+def get_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Get agent info (without API key)."""
+    if not (current_agent and (current_agent.id == agent_id or current_agent.is_admin)):
+        require_admin_agent(current_agent, "Only admin agent keys can inspect other agents")
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -311,13 +449,24 @@ def get_agent(agent_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/api/agents/{agent_id}", response_model=schemas.AgentPublic)
-def update_agent(agent_id: int, update: schemas.AgentUpdate, db: Session = Depends(get_db)):
+def update_agent(
+    agent_id: int,
+    update: schemas.AgentUpdate,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Update agent details."""
+    require_authenticated_agent(current_agent)
+    is_self = current_agent.id == agent_id
+    if not is_self:
+        require_admin_agent(current_agent, "Only admin agent keys can edit other agents")
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     
     update_data = update.model_dump(exclude_unset=True)
+    if is_self and not current_agent.is_admin and "name" in update_data:
+        raise HTTPException(status_code=403, detail="Non-admin agents cannot rename their own slug")
     if "name" in update_data:
         existing = db.query(models.Agent).filter(
             models.Agent.name == update_data["name"],
@@ -334,8 +483,15 @@ def update_agent(agent_id: int, update: schemas.AgentUpdate, db: Session = Depen
 
 
 @app.delete("/api/agents/{agent_id}")
-def delete_agent(agent_id: int, db: Session = Depends(get_db)):
+def delete_agent(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Delete an agent."""
+    require_admin_agent(current_agent, "Only admin agent keys can delete agents")
+    if current_agent.id == agent_id:
+        raise HTTPException(status_code=409, detail="Cannot delete the currently authenticated admin agent")
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -345,14 +501,23 @@ def delete_agent(agent_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/agents/{agent_id}/rotate-key", response_model=schemas.Agent)
-def rotate_agent_key(agent_id: int, db: Session = Depends(get_db)):
+def rotate_agent_key(
+    agent_id: int,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Rotate an agent's API key. Returns the new key (shown only once)."""
+    require_authenticated_agent(current_agent)
+    if current_agent.id != agent_id:
+        require_admin_agent(current_agent, "Only admin agent keys can rotate other agents")
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    agent.api_key = f"dlg_{secrets.token_urlsafe(32)}"
+    api_key = generate_agent_api_key()
+    migrate_agent_key(agent, api_key)
     db.commit()
     db.refresh(agent)
+    agent.api_key = api_key
     return agent
 
 
@@ -364,18 +529,12 @@ def fire_webhooks(event: str, task_data: dict, agent_data: dict = None, user_age
         db = SessionLocal()
         try:
             # Find all active webhooks that subscribe to this event
-            # If we have an agent, find webhooks for that agent's owner
-            # Otherwise fire to all webhooks subscribed to this event
             query = db.query(models.Webhook).filter(
                 models.Webhook.active == True,
                 models.Webhook.events.contains(f'"{event}"'),
             )
             if user_agent_id:
-                # Get agent's owner, then find all webhooks for that owner's agents
-                agent = db.query(models.Agent).filter(models.Agent.id == user_agent_id).first()
-                if not agent:
-                    return
-                # Could scope to owner's webhooks in future; for now fire all matching
+                query = query.filter(models.Webhook.agent_id == user_agent_id)
             
             webhooks = query.all()
             if not webhooks:
@@ -481,10 +640,8 @@ def list_webhooks(
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """List webhooks. If authenticated, shows only your webhooks."""
-    query = db.query(models.Webhook)
-    if agent:
-        query = query.filter(models.Webhook.agent_id == agent.id)
-    return query.order_by(models.Webhook.created_at).all()
+    require_admin_agent(agent, "Only admin agent keys can list webhooks")
+    return db.query(models.Webhook).order_by(models.Webhook.created_at).all()
 
 
 @app.post("/api/webhooks", response_model=schemas.WebhookPublic)
@@ -494,8 +651,7 @@ def create_webhook(
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Register a webhook endpoint for task lifecycle events."""
-    if not agent:
-        raise HTTPException(status_code=401, detail="X-Agent-Key required to create webhooks")
+    require_admin_agent(agent, "Only admin agent keys can create webhooks")
     
     # Validate events
     for event in webhook.events:
@@ -530,8 +686,7 @@ def update_webhook(
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Update a webhook."""
-    if not agent:
-        raise HTTPException(status_code=401, detail="X-Agent-Key required")
+    require_admin_agent(agent, "Only admin agent keys can update webhooks")
     
     wh = db.query(models.Webhook).filter(
         models.Webhook.id == webhook_id,
@@ -571,8 +726,7 @@ def delete_webhook(
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Delete a webhook."""
-    if not agent:
-        raise HTTPException(status_code=401, detail="X-Agent-Key required")
+    require_admin_agent(agent, "Only admin agent keys can delete webhooks")
     
     wh = db.query(models.Webhook).filter(
         models.Webhook.id == webhook_id,
@@ -594,8 +748,7 @@ def list_webhook_deliveries(
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """List recent delivery attempts for a webhook."""
-    if not agent:
-        raise HTTPException(status_code=401, detail="X-Agent-Key required")
+    require_admin_agent(agent, "Only admin agent keys can inspect webhook deliveries")
     
     wh = db.query(models.Webhook).filter(
         models.Webhook.id == webhook_id,
@@ -612,12 +765,21 @@ def list_webhook_deliveries(
 # ============ Projects ============
 
 @app.get("/api/projects", response_model=list[schemas.Project])
-def list_projects(db: Session = Depends(get_db)):
+def list_projects(
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    require_admin_agent(agent, "Only admin agent keys can list projects")
     return db.query(models.Project).order_by(models.Project.sort_order).all()
 
 
 @app.post("/api/projects", response_model=schemas.Project)
-def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)):
+def create_project(
+    project: schemas.ProjectCreate,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    require_admin_agent(agent, "Only admin agent keys can create projects")
     db_project = models.Project(**project.model_dump())
     db.add(db_project)
     db.commit()
@@ -626,7 +788,12 @@ def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)
 
 
 @app.get("/api/projects/{project_id}", response_model=schemas.Project)
-def get_project(project_id: int, db: Session = Depends(get_db)):
+def get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    require_admin_agent(agent, "Only admin agent keys can inspect projects")
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -634,7 +801,13 @@ def get_project(project_id: int, db: Session = Depends(get_db)):
 
 
 @app.put("/api/projects/{project_id}", response_model=schemas.Project)
-def update_project(project_id: int, project: schemas.ProjectUpdate, db: Session = Depends(get_db)):
+def update_project(
+    project_id: int,
+    project: schemas.ProjectUpdate,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    require_admin_agent(agent, "Only admin agent keys can update projects")
     db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -649,7 +822,12 @@ def update_project(project_id: int, project: schemas.ProjectUpdate, db: Session 
 
 
 @app.delete("/api/projects/{project_id}")
-def delete_project(project_id: int, db: Session = Depends(get_db)):
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    require_admin_agent(agent, "Only admin agent keys can delete projects")
     db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -670,11 +848,14 @@ def list_tasks(
     include_completed: Optional[bool] = False,  # Include completed tasks
     due: Optional[str] = None,  # today, upcoming, overdue
     label: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
-    query = db.query(models.Task)
+    query = apply_task_scope(db.query(models.Task), agent)
     
     if project_id is not None:
+        if agent is not None and not is_admin_agent(agent):
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot filter by project")
         query = query.filter(models.Task.project_id == project_id)
     
     if completed is not None:
@@ -730,7 +911,10 @@ def create_task(
     dedup_header = request.headers.get("X-Dedup-Check", "").lower()
     if dedup_header in ("true", "1", "yes"):
         from dedup import find_similar_tasks
-        open_tasks = db.query(models.Task).filter(models.Task.completed == False).all()
+        open_tasks = apply_task_scope(
+            db.query(models.Task).filter(models.Task.completed == False),
+            agent,
+        ).all()
         matches = find_similar_tasks(new_content=task.content, existing_tasks=open_tasks, threshold=0.6)
         if matches:
             raise HTTPException(
@@ -744,6 +928,12 @@ def create_task(
     
     task_data = task.model_dump()
     parent_task_id = task_data.pop("parent_task_id", None)
+    if agent and not is_admin_agent(agent):
+        if task_data.get("project_id") is not None:
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot attach tasks to projects")
+        assigned_to = task_data.get("assigned_to_agent_id")
+        if assigned_to is not None and assigned_to != agent.id:
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot assign tasks to other agents")
     
     db_task = models.Task(**task_data)
     if agent:
@@ -751,9 +941,7 @@ def create_task(
     
     # Handle delegation chain
     if parent_task_id:
-        parent = db.query(models.Task).filter(models.Task.id == parent_task_id).first()
-        if not parent:
-            raise HTTPException(status_code=404, detail=f"Parent task #{parent_task_id} not found")
+        parent = get_task_for_agent(db, parent_task_id, agent, require_mutation=True)
         db_task.parent_task_id = parent_task_id
         db_task.root_task_id = parent.root_task_id or parent.id  # Root is the top of the chain
         db_task.delegation_depth = (parent.delegation_depth or 0) + 1
@@ -778,11 +966,12 @@ def create_task(
 
 
 @app.get("/api/tasks/{task_id}", response_model=schemas.Task)
-def get_task(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+def get_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    return get_task_for_agent(db, task_id, agent)
 
 
 @app.put("/api/tasks/{task_id}", response_model=schemas.Task)
@@ -792,11 +981,14 @@ def update_task(
     db: Session = Depends(get_db),
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
-    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    db_task = get_task_for_agent(db, task_id, agent, require_mutation=True)
 
     update_data = task.model_dump(exclude_unset=True)
+    if agent and not is_admin_agent(agent):
+        if "project_id" in update_data and update_data["project_id"] is not None:
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot attach tasks to projects")
+        if "assigned_to_agent_id" in update_data and update_data["assigned_to_agent_id"] not in (None, agent.id):
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot reassign tasks to other agents")
     
     # Track if assignment changed for webhook
     old_assigned = db_task.assigned_to_agent_id
@@ -832,9 +1024,7 @@ def delete_task(
     db: Session = Depends(get_db),
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
-    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    db_task = get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     task_data = task_to_dict(db_task)
     db.delete(db_task)
@@ -855,9 +1045,7 @@ def complete_task(
     Complete a task, handling recurring tasks appropriately:
     - Local recurring tasks: Create next occurrence ourselves.
     """
-    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    db_task = get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     db_task.completed = True
     db_task.completed_at = datetime.now(timezone.utc)
@@ -907,11 +1095,13 @@ def complete_task(
 
 
 @app.post("/api/tasks/{task_id}/uncomplete", response_model=schemas.Task)
-def uncomplete_task(task_id: int, db: Session = Depends(get_db)):
+def uncomplete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Mark a task as not completed"""
-    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    db_task = get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     db_task.completed = False
     db_task.completed_at = None
@@ -926,6 +1116,7 @@ def uncomplete_task(task_id: int, db: Session = Depends(get_db)):
 def check_duplicates(
     body: schemas.DedupCheck,
     db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """
     Check if a task with similar content already exists (open tasks only).
@@ -937,9 +1128,9 @@ def check_duplicates(
     """
     from dedup import find_similar_tasks
     
-    open_tasks = db.query(models.Task).filter(
+    open_tasks = apply_task_scope(db.query(models.Task).filter(
         models.Task.completed == False,
-    ).all()
+    ), agent).all()
     
     matches = find_similar_tasks(
         new_content=body.content,
@@ -974,9 +1165,7 @@ def patch_context(
     If context was {"step": "started"}, it becomes:
       {"step": "research_done", "findings": ["price is $20/mo"]}
     """
-    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    db_task = get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     existing = dict(db_task.context or {})
     existing.update(body)
@@ -993,11 +1182,10 @@ def patch_context(
 def get_context(
     task_id: int,
     db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Get just the context blob for a task."""
-    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    db_task = get_task_for_agent(db, task_id, agent)
     return db_task.context or {}
 
 
@@ -1017,12 +1205,16 @@ def delegate_task(
     Example flow:
       Agent A creates task → delegates to Agent B → Agent B completes, delegates follow-up to Agent C
     """
-    parent = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not parent:
-        raise HTTPException(status_code=404, detail="Task not found")
+    parent = get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     task_data = delegation.model_dump()
     task_data.pop("parent_task_id", None)  # We set it from the URL
+    if agent and not is_admin_agent(agent):
+        if task_data.get("project_id") is not None:
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot attach delegated tasks to projects")
+        assigned_to = task_data.get("assigned_to_agent_id")
+        if assigned_to is not None and assigned_to != agent.id:
+            raise HTTPException(status_code=403, detail="Non-admin agents cannot delegate tasks to other agents")
     
     child = models.Task(**task_data)
     child.parent_task_id = parent.id
@@ -1049,14 +1241,13 @@ def delegate_task(
 def get_delegation_chain(
     task_id: int,
     db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """
     Get the full delegation chain for a task.
     Returns the root task and all descendants in order.
     """
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = get_task_for_agent(db, task_id, agent)
     
     # Find root
     root_id = task.root_task_id or task.id
@@ -1065,9 +1256,9 @@ def get_delegation_chain(
         root = task
     
     # Get all tasks in this chain
-    chain = db.query(models.Task).filter(
+    chain = apply_task_scope(db.query(models.Task).filter(
         models.Task.root_task_id == root_id
-    ).order_by(models.Task.delegation_depth, models.Task.created_at).all()
+    ), agent).order_by(models.Task.delegation_depth, models.Task.created_at).all()
     
     # Include root itself if not already in chain
     if root.id != root.root_task_id:
@@ -1089,34 +1280,38 @@ def get_delegation_chain(
 def get_child_tasks(
     task_id: int,
     db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Get direct child tasks (one level of delegation)."""
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    get_task_for_agent(db, task_id, agent)
     
-    return db.query(models.Task).filter(
+    return apply_task_scope(db.query(models.Task).filter(
         models.Task.parent_task_id == task_id
-    ).order_by(models.Task.created_at).all()
+    ), agent).order_by(models.Task.created_at).all()
 
 
 # ============ SubTasks ============
 
 @app.get("/api/tasks/{task_id}/subtasks", response_model=list[schemas.SubTask])
-def list_subtasks(task_id: int, db: Session = Depends(get_db)):
+def list_subtasks(
+    task_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Get all subtasks for a task"""
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    get_task_for_agent(db, task_id, agent)
     return db.query(models.SubTask).filter(models.SubTask.task_id == task_id).order_by(models.SubTask.sort_order).all()
 
 
 @app.post("/api/tasks/{task_id}/subtasks", response_model=schemas.SubTask)
-def create_subtask(task_id: int, subtask: schemas.SubTaskCreate, db: Session = Depends(get_db)):
+def create_subtask(
+    task_id: int,
+    subtask: schemas.SubTaskCreate,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Add a subtask to a task"""
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     # Get max sort_order for this task
     max_order = db.query(models.SubTask).filter(models.SubTask.task_id == task_id).count()
@@ -1129,8 +1324,15 @@ def create_subtask(task_id: int, subtask: schemas.SubTaskCreate, db: Session = D
 
 
 @app.put("/api/tasks/{task_id}/subtasks/{subtask_id}", response_model=schemas.SubTask)
-def update_subtask(task_id: int, subtask_id: int, subtask: schemas.SubTaskUpdate, db: Session = Depends(get_db)):
+def update_subtask(
+    task_id: int,
+    subtask_id: int,
+    subtask: schemas.SubTaskUpdate,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Update a subtask"""
+    get_task_for_agent(db, task_id, agent, require_mutation=True)
     db_subtask = db.query(models.SubTask).filter(
         models.SubTask.id == subtask_id,
         models.SubTask.task_id == task_id
@@ -1148,8 +1350,14 @@ def update_subtask(task_id: int, subtask_id: int, subtask: schemas.SubTaskUpdate
 
 
 @app.delete("/api/tasks/{task_id}/subtasks/{subtask_id}")
-def delete_subtask(task_id: int, subtask_id: int, db: Session = Depends(get_db)):
+def delete_subtask(
+    task_id: int,
+    subtask_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Delete a subtask"""
+    get_task_for_agent(db, task_id, agent, require_mutation=True)
     db_subtask = db.query(models.SubTask).filter(
         models.SubTask.id == subtask_id,
         models.SubTask.task_id == task_id
@@ -1163,8 +1371,14 @@ def delete_subtask(task_id: int, subtask_id: int, db: Session = Depends(get_db))
 
 
 @app.post("/api/tasks/{task_id}/subtasks/{subtask_id}/toggle", response_model=schemas.SubTask)
-def toggle_subtask(task_id: int, subtask_id: int, db: Session = Depends(get_db)):
+def toggle_subtask(
+    task_id: int,
+    subtask_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Toggle subtask completion"""
+    get_task_for_agent(db, task_id, agent, require_mutation=True)
     db_subtask = db.query(models.SubTask).filter(
         models.SubTask.id == subtask_id,
         models.SubTask.task_id == task_id
@@ -1181,11 +1395,13 @@ def toggle_subtask(task_id: int, subtask_id: int, db: Session = Depends(get_db))
 # ============ Comments ============
 
 @app.get("/api/tasks/{task_id}/comments", response_model=list[schemas.Comment])
-def list_comments(task_id: int, db: Session = Depends(get_db)):
+def list_comments(
+    task_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Get all comments for a task"""
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    get_task_for_agent(db, task_id, agent)
     return db.query(models.Comment).filter(models.Comment.task_id == task_id).order_by(models.Comment.created_at).all()
 
 
@@ -1197,9 +1413,7 @@ def create_comment(
     agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Add a comment to a task"""
-    task = db.query(models.Task).filter(models.Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = get_task_for_agent(db, task_id, agent, require_mutation=True)
     
     db_comment = models.Comment(task_id=task_id, **comment.model_dump())
     db.add(db_comment)
@@ -1213,8 +1427,14 @@ def create_comment(
 
 
 @app.delete("/api/tasks/{task_id}/comments/{comment_id}")
-def delete_comment(task_id: int, comment_id: int, db: Session = Depends(get_db)):
+def delete_comment(
+    task_id: int,
+    comment_id: int,
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Delete a comment"""
+    get_task_for_agent(db, task_id, agent, require_mutation=True)
     comment = db.query(models.Comment).filter(
         models.Comment.id == comment_id,
         models.Comment.task_id == task_id
@@ -1230,69 +1450,69 @@ def delete_comment(task_id: int, comment_id: int, db: Session = Depends(get_db))
 # ============ Stats (for Dashboard) ============
 
 @app.get("/api/stats", response_model=schemas.Stats)
-def get_stats(db: Session = Depends(get_db)):
+def get_stats(
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     today = date.today()
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
     
-    total_tasks = db.query(models.Task).filter(models.Task.completed == False).count()
+    task_query = apply_task_scope(db.query(models.Task), agent)
+    total_tasks = task_query.filter(models.Task.completed == False).count()
     
-    completed_today = db.query(models.Task).filter(
+    completed_today = apply_task_scope(db.query(models.Task).filter(
         and_(
             models.Task.completed == True,
             models.Task.completed_at >= today_start,
             models.Task.completed_at <= today_end
         )
-    ).count()
+    ), agent).count()
     
-    due_today = db.query(models.Task).filter(
+    due_today = apply_task_scope(db.query(models.Task).filter(
         and_(
             models.Task.due_date == today,
             models.Task.completed == False
         )
-    ).count()
+    ), agent).count()
     
-    overdue = db.query(models.Task).filter(
+    overdue = apply_task_scope(db.query(models.Task).filter(
         and_(
             models.Task.due_date < today,
             models.Task.completed == False
         )
-    ).count()
+    ), agent).count()
     
     # Upcoming (next 7 days, excluding today)
     next_week = today + timedelta(days=7)
-    upcoming = db.query(models.Task).filter(
+    upcoming = apply_task_scope(db.query(models.Task).filter(
         and_(
             models.Task.due_date > today,
             models.Task.due_date <= next_week,
             models.Task.completed == False
         )
-    ).count()
+    ), agent).count()
     
     # Total completed (all time)
-    total_completed = db.query(models.Task).filter(models.Task.completed == True).count()
+    total_completed = apply_task_scope(
+        db.query(models.Task).filter(models.Task.completed == True),
+        agent,
+    ).count()
     
     # Tasks by project
-    projects = db.query(models.Project).all()
     by_project = {}
-    for project in projects:
-        count = db.query(models.Task).filter(
-            and_(
-                models.Task.project_id == project.id,
-                models.Task.completed == False
-            )
-        ).count()
-        by_project[project.name] = count
-    
-    # Count tasks with no project
-    no_project_count = db.query(models.Task).filter(
-        and_(
-            models.Task.project_id == None,
-            models.Task.completed == False
-        )
-    ).count()
-    if no_project_count > 0:
-        by_project["Inbox"] = no_project_count
+    scoped_open_tasks = apply_task_scope(
+        db.query(models.Task).filter(models.Task.completed == False),
+        agent,
+    ).all()
+    project_ids = {task.project_id for task in scoped_open_tasks if task.project_id is not None}
+    project_names = {
+        project.id: project.name
+        for project in db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
+    } if project_ids else {}
+    for task in scoped_open_tasks:
+        project_name = project_names.get(task.project_id, "Inbox")
+        by_project[project_name] = by_project.get(project_name, 0) + 1
     
     return schemas.Stats(
         total_tasks=total_tasks,
