@@ -220,15 +220,19 @@ def is_admin_agent(agent: Optional[models.Agent]) -> bool:
     return bool(agent and agent.is_admin)
 
 
-def require_authenticated_agent(agent: Optional[models.Agent], detail: str = "X-Agent-Key required") -> models.Agent:
+def require_authenticated_agent(agent: Optional[models.Agent], detail: str = "X-Agent-Key required") -> Optional[models.Agent]:
     if not agent:
+        if not REQUIRE_AUTH:
+            return None  # Allow unauthenticated access when auth not required (local frontend)
         raise HTTPException(status_code=401, detail=detail)
     return agent
 
 
-def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agent key required") -> models.Agent:
+def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agent key required") -> Optional[models.Agent]:
+    if not agent and not REQUIRE_AUTH:
+        return None  # Allow unauthenticated access when auth not required (local frontend)
     current = require_authenticated_agent(agent)
-    if not current.is_admin:
+    if current and not current.is_admin:
         raise HTTPException(status_code=403, detail=detail)
     return current
 
