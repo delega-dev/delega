@@ -71,8 +71,21 @@ delega/
 
 - Keep it simple. Readable code beats clever code.
 - If you add an API endpoint, update the README.
-- Agent-facing features should work with and without `DELEGA_REQUIRE_AUTH`.
 - The frontend is a single `index.html`. That's intentional.
+
+### Authentication Model (Important)
+
+Delega supports two modes:
+
+- **Open mode** (default): `DELEGA_REQUIRE_AUTH` is unset. All API endpoints work without an `X-Agent-Key` header. This is how most self-hosted users run — the built-in frontend has no auth, and users building custom frontends or dashboards expect unauthenticated local access.
+- **Auth mode**: `DELEGA_REQUIRE_AUTH=true`. All `/api/*` routes require a valid `X-Agent-Key`. Admin-only routes (agents, projects, webhooks, billing) additionally require `is_admin=1`.
+
+**Every endpoint must work in both modes.** When adding auth checks:
+
+- Use `require_admin_agent()` / `require_authenticated_agent()` — these already respect `REQUIRE_AUTH` and return `None` (not 401) when auth is not required.
+- Never add bare `if not agent: raise 401` checks — that breaks open mode.
+- When `agent` is `None` in open mode, treat it as full/admin access (the user controls their own server).
+- Test your changes both with and without `DELEGA_REQUIRE_AUTH=true`.
 
 ## Areas for Contribution
 
