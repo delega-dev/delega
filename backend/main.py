@@ -30,7 +30,14 @@ from pywebpush import webpush, WebPushException
 logger = logging.getLogger("delega")
 
 # ============ Config from env ============
-REQUIRE_AUTH = os.environ.get("DELEGA_REQUIRE_AUTH", "").lower() in ("true", "1", "yes")
+def env_flag(name: str, default: bool) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+    return raw_value.strip().lower() in ("true", "1", "yes", "on")
+
+
+REQUIRE_AUTH = env_flag("DELEGA_REQUIRE_AUTH", True)
 MAX_JSON_BODY_BYTES = int(os.environ.get("DELEGA_MAX_BODY_BYTES", "65536"))
 KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "120000"))
 CORS_ORIGINS = [
@@ -237,14 +244,29 @@ def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agen
     return current
 
 
+def is_loopback_like_host(host: str) -> bool:
+    if host == "testclient":
+        return True
+    try:
+        client_ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        return False
+    return client_ip.is_loopback
+
+
 def require_loopback_request(request: Request, detail: str) -> None:
     client_host = request.client.host if request.client else ""
-    try:
-        client_ip = ipaddress.ip_address(client_host.split("%", 1)[0])
-    except ValueError:
+    if not is_loopback_like_host(client_host):
         raise HTTPException(status_code=403, detail=detail)
-    if not client_ip.is_loopback:
-        raise HTTPException(status_code=403, detail=detail)
+
+
+def require_localhost_target(request: Request, detail: str) -> None:
+    hostname = (request.url.hostname or "").lower()
+    if hostname in ("localhost",):
+        return
+    if is_loopback_like_host(hostname):
+        return
+    raise HTTPException(status_code=403, detail=detail)
 
 
 def authorize_push_request(
@@ -258,6 +280,34 @@ def authorize_push_request(
     if REQUIRE_AUTH:
         raise HTTPException(status_code=401, detail="X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)")
     require_loopback_request(request, detail)
+
+
+def is_initial_agent_bootstrap_request(request: Request) -> bool:
+    return request.method.upper() == "POST" and request.url.path == "/api/agents"
+
+
+def allow_initial_agent_bootstrap(request: Request) -> bool:
+    if not is_initial_agent_bootstrap_request(request):
+        return False
+
+    db = SessionLocal()
+    try:
+        existing_agent = db.query(models.Agent.id).first()
+    finally:
+        db.close()
+
+    if existing_agent:
+        return False
+
+    require_localhost_target(
+        request,
+        "Initial agent bootstrap is only allowed through localhost when DELEGA_REQUIRE_AUTH is enabled",
+    )
+    require_loopback_request(
+        request,
+        "Initial agent bootstrap is only allowed from loopback when DELEGA_REQUIRE_AUTH is enabled",
+    )
+    return True
 
 
 def apply_task_scope(query, agent: Optional[models.Agent]):
@@ -324,21 +374,79 @@ async def rate_limit_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-@app.middleware("http")
-async def body_size_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/") and request.method.upper() in ("POST", "PUT", "PATCH"):
-        content_length = request.headers.get("content-length")
+class BodySizeLimitMiddleware:
+    """Enforce write-body limits before FastAPI parses the request body."""
+
+    def __init__(self, app, max_body_bytes: int):
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        method = scope.get("method", "").upper()
+        if not path.startswith("/api/") or method not in ("POST", "PUT", "PATCH"):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        content_length = headers.get("content-length")
         if content_length:
             try:
-                if int(content_length) > MAX_JSON_BODY_BYTES:
-                    return JSONResponse(
+                if int(content_length) > self.max_body_bytes:
+                    response = JSONResponse(
                         status_code=413,
-                        content={"detail": f"Request body too large (max {MAX_JSON_BODY_BYTES} bytes)"},
+                        content={"detail": f"Request body too large (max {self.max_body_bytes} bytes)"},
                     )
+                    await response(scope, receive, send)
+                    return
             except ValueError:
                 pass
 
-    return await call_next(request)
+        chunks = []
+        bytes_received = 0
+
+        while True:
+            message = await receive()
+            if message.get("type") != "http.request":
+                break
+
+            body = message.get("body", b"")
+            bytes_received += len(body)
+            if bytes_received > self.max_body_bytes:
+                response = JSONResponse(
+                    status_code=413,
+                    content={"detail": f"Request body too large (max {self.max_body_bytes} bytes)"},
+                )
+                await response(scope, receive, send)
+                return
+
+            if body:
+                chunks.append(body)
+
+            if not message.get("more_body", False):
+                break
+
+        buffered_body = b"".join(chunks)
+        body_sent = False
+
+        async def replay_receive():
+            nonlocal body_sent
+            if body_sent:
+                return {"type": "http.request", "body": b"", "more_body": False}
+            body_sent = True
+            return {"type": "http.request", "body": buffered_body, "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=MAX_JSON_BODY_BYTES)
 
 
 @app.middleware("http")
@@ -350,6 +458,8 @@ async def auth_gate_middleware(request: Request, call_next):
     x_agent_key = request.headers.get("X-Agent-Key")
 
     if not x_agent_key:
+        if REQUIRE_AUTH and allow_initial_agent_bootstrap(request):
+            return await call_next(request)
         if REQUIRE_AUTH:
             return JSONResponse(
                 status_code=401,
@@ -394,8 +504,9 @@ def get_current_agent(
 ) -> Optional[models.Agent]:
     """
     Resolve agent from X-Agent-Key header.
-    When DELEGA_REQUIRE_AUTH=true, key is mandatory on all /api/* routes.
-    Otherwise returns None if no key provided (backward compat).
+    When DELEGA_REQUIRE_AUTH=true, key is mandatory on all /api/* routes
+    except the first loopback-only agent bootstrap request.
+    Otherwise returns None if no key provided.
     """
     current_agent_id = getattr(request.state, "current_agent_id", None)
     if current_agent_id is not None:
@@ -407,6 +518,8 @@ def get_current_agent(
             return agent
 
     if not x_agent_key:
+        if REQUIRE_AUTH and allow_initial_agent_bootstrap(request):
+            return None
         if REQUIRE_AUTH:
             raise HTTPException(status_code=401, detail="X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)")
         return None

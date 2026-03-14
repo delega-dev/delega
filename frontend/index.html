@@ -12,8 +12,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="/assets/vendor/tailwindcss-cdn.js"></script>
+  <script src="/assets/vendor/vue.global.prod.js"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
@@ -1212,6 +1212,74 @@
 </head>
 <body class="safe-top safe-bottom">
   <div id="app" class="relative z-10">
+    <div
+      v-if="showAuthPrompt"
+      class="fixed inset-0 z-[90] flex items-center justify-center bg-[rgba(0,0,0,0.6)] p-4 backdrop-blur-sm"
+    >
+      <div class="w-full max-w-lg rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[#202020] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#00d4ff]">Authentication Required</p>
+            <h2 class="mt-2 text-xl font-semibold text-[#e8e8e8] font-display">Enter a Delega API key</h2>
+            <p class="mt-2 text-[13px] leading-6 text-[#9d9d9d]">
+              This server is running with `DELEGA_REQUIRE_AUTH=true`. Paste an admin or agent key to use the dashboard.
+            </p>
+          </div>
+          <button
+            v-if="storedApiKey"
+            @click="showAuthPrompt = false"
+            class="rounded-full border border-[rgba(255,255,255,0.08)] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[#b8b8b8] transition-colors hover:border-[rgba(255,255,255,0.16)] hover:text-white"
+          >
+            Close
+          </button>
+        </div>
+
+        <div class="mt-5">
+          <label class="mb-2 block text-[12px] font-medium uppercase tracking-[0.12em] text-[#7f7f7f]">Agent API Key</label>
+          <input
+            v-model="apiKeyInput"
+            type="password"
+            class="delega-input"
+            placeholder="dlg_..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <p class="mt-2 text-[12px] leading-5 text-[#7f7f7f]">
+            The key is stored only in this browser using local storage.
+          </p>
+          <p v-if="authPromptMessage" class="mt-2 text-[12px] leading-5 text-[#ffb7b7]">
+            {{ authPromptMessage }}
+          </p>
+        </div>
+
+        <div class="mt-5 flex flex-wrap gap-3">
+          <button
+            @click="saveApiKey"
+            class="rounded-lg bg-[#00d4ff] px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#00a8cc]"
+          >
+            Save and retry
+          </button>
+          <button
+            v-if="storedApiKey"
+            @click="clearApiKey"
+            class="rounded-lg border border-[rgba(255,255,255,0.08)] px-4 py-2 text-[13px] font-medium text-[#c8c8c8] transition-colors hover:border-[rgba(255,255,255,0.16)] hover:text-white"
+          >
+            Clear saved key
+          </button>
+        </div>
+
+        <div class="mt-5 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-4">
+          <p class="text-[12px] font-medium uppercase tracking-[0.12em] text-[#7f7f7f]">First-Time Setup</p>
+          <p class="mt-2 text-[13px] leading-6 text-[#9d9d9d]">
+            If this is a fresh install, create the first admin agent from the same machine:
+          </p>
+          <pre class="mt-3 overflow-x-auto rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#171717] px-3 py-3 text-[12px] leading-5 text-[#d7d7d7]"><code>curl -X POST http://localhost:18890/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{"name":"coordinator","display_name":"Task Coordinator"}'</code></pre>
+        </div>
+      </div>
+    </div>
+
     <div
       v-if="apiError"
       class="fixed left-1/2 top-4 z-[80] w-[min(92vw,640px)] -translate-x-1/2 rounded-2xl border border-[rgba(255,106,106,0.35)] bg-[rgba(28,12,16,0.95)] px-4 py-3 text-sm text-[#ffd2d2] shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur"
@@ -2789,6 +2857,7 @@
 
   <script>
     // ============ Push Notification Management ============
+    const API_KEY_STORAGE_KEY = 'delega.apiKey';
     
     // Helper: Convert base64 to Uint8Array (for VAPID key)
     function urlBase64ToUint8Array(base64String) {
@@ -2813,6 +2882,43 @@
       if (/Mac/.test(ua)) return "Mac";
       if (/Windows/.test(ua)) return "Windows";
       return "Unknown Device";
+    }
+
+    function getStoredApiKey() {
+      try {
+        return window.localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+      } catch (err) {
+        return '';
+      }
+    }
+
+    function setStoredApiKey(value) {
+      const normalized = (value || '').trim();
+      try {
+        if (normalized) {
+          window.localStorage.setItem(API_KEY_STORAGE_KEY, normalized);
+        } else {
+          window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+        }
+      } catch (err) {
+        console.warn('Unable to persist API key locally:', err);
+      }
+    }
+
+    function withStoredAuthHeaders(headers) {
+      const result = new Headers(headers || {});
+      const apiKey = getStoredApiKey();
+      if (apiKey && !result.has('X-Agent-Key')) {
+        result.set('X-Agent-Key', apiKey);
+      }
+      return result;
+    }
+
+    function fetchWithStoredAuth(url, options = {}) {
+      return fetch(url, {
+        ...options,
+        headers: withStoredAuthHeaders(options.headers)
+      });
     }
 
     // Push notification management
@@ -2859,7 +2965,7 @@
         
         // Get VAPID public key from server
         console.log('[Push] Fetching VAPID key...');
-        const response = await fetch('/api/push/vapid-key');
+        const response = await fetchWithStoredAuth('/api/push/vapid-key');
         const { publicKey } = await response.json();
         console.log('[Push] Got VAPID key:', publicKey.substring(0, 20) + '...');
         
@@ -2880,7 +2986,7 @@
         // Send subscription to backend
         console.log('[Push] Sending to backend...');
         const subJson = subscription.toJSON();
-        const backendResponse = await fetch('/api/push/subscribe', {
+        const backendResponse = await fetchWithStoredAuth('/api/push/subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2899,7 +3005,7 @@
         const subscription = await this.getSubscription();
         if (subscription) {
           // Tell backend
-          await fetch(`/api/push/unsubscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`, {
+          await fetchWithStoredAuth(`/api/push/unsubscribe?endpoint=${encodeURIComponent(subscription.endpoint)}`, {
             method: 'DELETE'
           });
           // Unsubscribe locally
@@ -2932,6 +3038,10 @@
         const touchStartY = ref(0);
         const pullDistance = ref(0);
         const apiFailures = ref({});
+        const storedApiKey = ref(getStoredApiKey());
+        const apiKeyInput = ref(storedApiKey.value);
+        const showAuthPrompt = ref(false);
+        const authPromptMessage = ref('');
 
         // Inline editor state (desktop)
         const showInlineEditor = ref(false);
@@ -2984,9 +3094,52 @@
           apiFailures.value = {};
         }
 
+        function openAuthPrompt(message) {
+          authPromptMessage.value = message || 'Enter a valid Delega API key to continue.';
+          apiKeyInput.value = storedApiKey.value;
+          showAuthPrompt.value = true;
+        }
+
+        async function reloadWorkspace() {
+          await Promise.all([loadTasks(), loadProjects(), loadStats(), loadAllTasksCache()]);
+        }
+
+        async function saveApiKey() {
+          const trimmed = apiKeyInput.value.trim();
+          if (!trimmed) {
+            openAuthPrompt('Enter a Delega agent API key.');
+            return;
+          }
+
+          setStoredApiKey(trimmed);
+          storedApiKey.value = trimmed;
+          authPromptMessage.value = '';
+          showAuthPrompt.value = false;
+          dismissApiError();
+          await reloadWorkspace();
+        }
+
+        function clearApiKey() {
+          setStoredApiKey('');
+          storedApiKey.value = '';
+          apiKeyInput.value = '';
+          authPromptMessage.value = '';
+          showAuthPrompt.value = true;
+        }
+
+        async function apiFetch(path, options = {}) {
+          const res = await fetchWithStoredAuth(`${API}${path}`, options);
+          if (res.status === 401) {
+            openAuthPrompt('This Delega server requires a valid X-Agent-Key. Paste an admin or agent key to continue.');
+          } else if (res.ok) {
+            authPromptMessage.value = '';
+          }
+          return res;
+        }
+
         async function fetchApiJson(path, { errorKey, label, expect, fallback } = {}) {
           try {
-            const res = await fetch(`${API}${path}`);
+            const res = await apiFetch(path);
             const contentType = res.headers.get('content-type') || '';
             let payload = null;
 
@@ -3257,7 +3410,7 @@
         async function quickAdd() {
           if (!newTask.value.trim()) return;
 
-          await fetch(`${API}/tasks`, {
+          await apiFetch('/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3272,7 +3425,7 @@
 
         async function toggleComplete(task) {
           const endpoint = task.completed ? 'uncomplete' : 'complete';
-          await fetch(`${API}/tasks/${task.id}/${endpoint}`, { method: 'POST' });
+          await apiFetch(`/tasks/${task.id}/${endpoint}`, { method: 'POST' });
           await Promise.all([loadTasks(), loadStats()]);
         }
 
@@ -3297,7 +3450,7 @@
           // Load comments if editing existing task
           if (task.id) {
             try {
-              const res = await fetch(`${API}/tasks/${task.id}/comments`);
+              const res = await apiFetch(`/tasks/${task.id}/comments`);
               editingTask.value.comments = await res.json();
             } catch (e) {
               console.error('Failed to load comments', e);
@@ -3310,13 +3463,13 @@
           if (!task.content?.trim()) return;
 
           if (task.id) {
-            await fetch(`${API}/tasks/${task.id}`, {
+            await apiFetch(`/tasks/${task.id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(task)
             });
           } else {
-            await fetch(`${API}/tasks`, {
+            await apiFetch('/tasks', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(task)
@@ -3329,7 +3482,7 @@
 
         async function deleteTask(id) {
           if (!confirm('Delete this task?')) return;
-          await fetch(`${API}/tasks/${id}`, { method: 'DELETE' });
+          await apiFetch(`/tasks/${id}`, { method: 'DELETE' });
           editingTask.value = null;
           await Promise.all([loadTasks(), loadStats()]);
         }
@@ -3338,7 +3491,7 @@
         async function saveInlineTask() {
           if (!inlineTask.value.content?.trim()) return;
 
-          await fetch(`${API}/tasks`, {
+          await apiFetch('/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(inlineTask.value)
@@ -3404,7 +3557,7 @@
         // Subtask functions
         async function addSubtask() {
           if (!newSubtask.value.trim() || !editingTask.value?.id) return;
-          const res = await fetch(`${API}/tasks/${editingTask.value.id}/subtasks`, {
+          const res = await apiFetch(`/tasks/${editingTask.value.id}/subtasks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: newSubtask.value })
@@ -3416,13 +3569,13 @@
         }
 
         async function toggleSubtask(subtask) {
-          await fetch(`${API}/tasks/${editingTask.value.id}/subtasks/${subtask.id}/toggle`, { method: 'POST' });
+          await apiFetch(`/tasks/${editingTask.value.id}/subtasks/${subtask.id}/toggle`, { method: 'POST' });
           subtask.completed = !subtask.completed;
           await loadTasks();
         }
 
         async function deleteSubtask(subtaskId) {
-          await fetch(`${API}/tasks/${editingTask.value.id}/subtasks/${subtaskId}`, { method: 'DELETE' });
+          await apiFetch(`/tasks/${editingTask.value.id}/subtasks/${subtaskId}`, { method: 'DELETE' });
           editingTask.value.subtasks = editingTask.value.subtasks.filter(s => s.id !== subtaskId);
           await loadTasks();
         }
@@ -3430,7 +3583,7 @@
         // Comment functions
         async function addComment() {
           if (!newComment.value.trim() || !editingTask.value?.id) return;
-          const res = await fetch(`${API}/tasks/${editingTask.value.id}/comments`, {
+          const res = await apiFetch(`/tasks/${editingTask.value.id}/comments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: newComment.value, author: 'ryan' })
@@ -3441,7 +3594,7 @@
         }
 
         async function deleteComment(commentId) {
-          await fetch(`${API}/tasks/${editingTask.value.id}/comments/${commentId}`, { method: 'DELETE' });
+          await apiFetch(`/tasks/${editingTask.value.id}/comments/${commentId}`, { method: 'DELETE' });
           editingTask.value.comments = editingTask.value.comments.filter(c => c.id !== commentId);
         }
 
@@ -3506,7 +3659,7 @@
         
         async function sendTestNotification() {
           try {
-            const res = await fetch('/api/push/test', { method: 'POST' });
+            const res = await apiFetch('/push/test', { method: 'POST' });
             const data = await res.json();
             if (data.sent > 0) {
               alert('Test notification sent!');
@@ -3610,7 +3763,7 @@
           showProjects, showLabels, showHelp, editingTask, tabs, filteredTasks, overdueTasks, todayOnlyTasks,
           newSubtask, newComment, newLabel, isRefreshing,
           sortBy, sortOptions, inboxCount, allLabels, labelTaskCount,
-          apiError, dismissApiError,
+          apiError, dismissApiError, storedApiKey, apiKeyInput, showAuthPrompt, authPromptMessage, saveApiKey, clearApiKey,
           // Desktop inline editor
           showInlineEditor, inlineTask, showInlineDatePicker, showInlinePriorityPicker,
           currentViewTitle, currentViewSubtitle,

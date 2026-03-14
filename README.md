@@ -47,7 +47,7 @@ When Agent A needs Agent B to do something, there's no standard way to hand off 
 | **Context** | JSON context blobs on tasks, PATCH merge for incremental updates |
 | **Webhooks** | 6 lifecycle events, HMAC signatures, delivery logging, auto-disable after failures |
 | **Dedup** | Semantic similarity detection via TF-IDF, configurable threshold, `/api/tasks/dedup`, optional `X-Dedup-Check` header |
-| **Security** | Optional API key auth (`DELEGA_REQUIRE_AUTH`), rate limiting, configurable CORS |
+| **Security** | API key auth enabled by default (`DELEGA_REQUIRE_AUTH`), rate limiting, configurable CORS |
 | **UI** | PWA with dark theme, push notifications, mobile-friendly |
 | **Database** | SQLite (one file, zero ops) or Postgres |
 
@@ -114,14 +114,14 @@ See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 11 MCP tools.
 
 Self-hosted Delega supports two frontend/API modes:
 
-- **Open mode** (default): the built-in frontend and custom frontends can call `/api/*` without `X-Agent-Key`. This is the normal local-owner workflow.
-- **Auth mode** (`DELEGA_REQUIRE_AUTH=true`): every `/api/*` request needs `X-Agent-Key`, and admin-only routes still require an admin agent key.
+- **Auth mode** (default): every `/api/*` request needs `X-Agent-Key`, and admin-only routes still require an admin agent key.
+- **Open mode** (`DELEGA_REQUIRE_AUTH=false`): local-only opt-out for single-user development when you explicitly want the built-in frontend and custom frontends to call `/api/*` without `X-Agent-Key`.
 
 For custom frontends:
 
 - Target the API base directly: `http://localhost:18890/api`
-- In open mode, omit `X-Agent-Key`
 - In auth mode, include `X-Agent-Key: dlg_...` on every request
+- In open mode, omit `X-Agent-Key`
 - Push subscription routes are loopback-or-admin in open mode, so remote browser frontends should enable auth mode if they need push management
 
 ## API Reference
@@ -224,15 +224,15 @@ chain = requests.get(f"{API}/api/tasks/{task['id']}/chain").json()
 | `DELEGA_HOST` | `0.0.0.0` | Bind address |
 | `DELEGA_PORT` | `18890` | API port |
 | `DELEGA_DB_PATH` | `./data/delega.db` | SQLite database path |
-| `DELEGA_REQUIRE_AUTH` | `false` | Require `X-Agent-Key` on all API routes |
+| `DELEGA_REQUIRE_AUTH` | `true` | Require `X-Agent-Key` on all API routes |
 | `DELEGA_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `DELEGA_DATABASE_URL` | _(auto)_ | Full SQLAlchemy URL (for Postgres, etc.) |
 
 ### Security
 
-By default, Delega runs in **open mode** (no auth required). This is the mode used by the built-in frontend, and it is also the supported contract for local custom frontends calling `/api/*` directly.
+By default, Delega runs in **auth mode**. The built-in frontend can store an API key locally in the browser, and all `/api/*` requests send that key when authentication is enabled.
 
-For production or multi-agent deployments, set `DELEGA_REQUIRE_AUTH=true` and register agents to get API keys:
+For first-time setup with auth enabled, bootstrap the first admin agent from the same machine:
 
 ```bash
 curl -X POST http://localhost:18890/api/agents \
@@ -241,14 +241,18 @@ curl -X POST http://localhost:18890/api/agents \
 # Returns: { "api_key": "dlg_...", ... }
 ```
 
+That unauthenticated bootstrap path is allowed only when there are no agents yet and the request comes from loopback.
+
 Then pass the key on every request: `X-Agent-Key: dlg_...`
+
+If you explicitly want the old local open mode, set `DELEGA_REQUIRE_AUTH=false`. Do that only for single-user local development.
 
 With `DELEGA_REQUIRE_AUTH=true`, the server enforces authentication on every `/api/*` route. Admin-only routes such as agent management, project management, and webhooks additionally require an admin key.
 
 For frontend builders, the supported behavior is:
 
-- open mode: normal task/project/dashboard routes work without auth
-- auth mode: those same routes work with `X-Agent-Key`
+- auth mode: normal task/project/dashboard routes work with `X-Agent-Key`
+- open mode: those same routes work without auth only when you explicitly set `DELEGA_REQUIRE_AUTH=false`
 - management routes stay admin-only when a key is in play
 
 Additional hardening in this repo:
