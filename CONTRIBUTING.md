@@ -77,15 +77,16 @@ delega/
 
 Delega supports two modes:
 
-- **Open mode** (default): `DELEGA_REQUIRE_AUTH` is unset. All API endpoints work without an `X-Agent-Key` header. This is how most self-hosted users run — the built-in frontend has no auth, and users building custom frontends or dashboards expect unauthenticated local access.
-- **Auth mode**: `DELEGA_REQUIRE_AUTH=true`. All `/api/*` routes require a valid `X-Agent-Key`. Admin-only routes (agents, projects, webhooks, billing) additionally require `is_admin=1`.
+- **Auth mode** (default): `DELEGA_REQUIRE_AUTH` is unset or `true`. All `/api/*` routes require a valid `X-Agent-Key`. Admin-only routes (agents, projects, webhooks, billing) additionally require `is_admin=1`.
+- **Open mode**: `DELEGA_REQUIRE_AUTH=false`. All API endpoints work without an `X-Agent-Key` header. This is a deliberate local-dev opt-out, not the default deployment model.
 
 **Every endpoint must work in both modes.** When adding auth checks:
 
 - Use `require_admin_agent()` / `require_authenticated_agent()` — these already respect `REQUIRE_AUTH` and return `None` (not 401) when auth is not required.
-- Never add bare `if not agent: raise 401` checks — that breaks open mode.
+- Never add bare `if not agent: raise 401` checks unless the route must stay closed even in explicit open mode.
 - When `agent` is `None` in open mode, treat it as full/admin access (the user controls their own server).
-- Test your changes both with and without `DELEGA_REQUIRE_AUTH=true`.
+- Preserve the loopback-only first-agent bootstrap path when auth is enabled.
+- Test your changes with `DELEGA_REQUIRE_AUTH=true`, `DELEGA_REQUIRE_AUTH=false`, and the default env-unset behavior when the default matters.
 
 ## Areas for Contribution
 
