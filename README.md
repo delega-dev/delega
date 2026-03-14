@@ -46,7 +46,7 @@ When Agent A needs Agent B to do something, there's no standard way to hand off 
 | **Delegation** | Parent/child task chains, root task tracking, delegation depth, chain visualization |
 | **Context** | JSON context blobs on tasks, PATCH merge for incremental updates |
 | **Webhooks** | 6 lifecycle events, HMAC signatures, delivery logging, auto-disable after failures |
-| **Dedup** | Semantic similarity detection via TF-IDF, configurable threshold, `X-Dedup-Check` header |
+| **Dedup** | Semantic similarity detection via TF-IDF, configurable threshold, `/api/tasks/dedup`, optional `X-Dedup-Check` header |
 | **Security** | Optional API key auth (`DELEGA_REQUIRE_AUTH`), rate limiting, configurable CORS |
 | **UI** | PWA with dark theme, push notifications, mobile-friendly |
 | **Database** | SQLite (one file, zero ops) or Postgres |
@@ -65,6 +65,8 @@ python main.py
 ```
 
 API is live at `http://localhost:18890`. Interactive docs at `/docs`.
+
+The built-in web UI is served from the same host at `http://localhost:18890`. If you're building your own frontend, point it at the API base `http://localhost:18890/api`.
 
 ### Docker
 
@@ -108,6 +110,20 @@ Add to your MCP client config:
 
 See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 11 MCP tools.
 
+### Frontend Modes
+
+Self-hosted Delega supports two frontend/API modes:
+
+- **Open mode** (default): the built-in frontend and custom frontends can call `/api/*` without `X-Agent-Key`. This is the normal local-owner workflow.
+- **Auth mode** (`DELEGA_REQUIRE_AUTH=true`): every `/api/*` request needs `X-Agent-Key`, and admin-only routes still require an admin agent key.
+
+For custom frontends:
+
+- Target the API base directly: `http://localhost:18890/api`
+- In open mode, omit `X-Agent-Key`
+- In auth mode, include `X-Agent-Key: dlg_...` on every request
+- Push subscription routes are loopback-or-admin in open mode, so remote browser frontends should enable auth mode if they need push management
+
 ## API Reference
 
 ### Agents
@@ -138,7 +154,7 @@ See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 11 MCP tools.
 
 **Query filters:** `?due=today`, `?due=overdue`, `?label=@agent`, `?completed=true`, `?project_id=1`
 
-**Dedup header:** Add `X-Dedup-Check: true` to `POST /api/tasks` to check for similar existing tasks before creating.
+**Dedup:** Use `POST /api/tasks/dedup` for an explicit similarity check, or add `X-Dedup-Check: true` to `POST /api/tasks` to reject near-duplicates before creation.
 
 ### Projects, Subtasks, Comments
 
@@ -214,7 +230,7 @@ chain = requests.get(f"{API}/api/tasks/{task['id']}/chain").json()
 
 ### Security
 
-By default, Delega runs in **open mode** (no auth required). This is fine for single-user homelab setups behind a reverse proxy.
+By default, Delega runs in **open mode** (no auth required). This is the mode used by the built-in frontend, and it is also the supported contract for local custom frontends calling `/api/*` directly.
 
 For production or multi-agent deployments, set `DELEGA_REQUIRE_AUTH=true` and register agents to get API keys:
 
@@ -227,7 +243,13 @@ curl -X POST http://localhost:18890/api/agents \
 
 Then pass the key on every request: `X-Agent-Key: dlg_...`
 
-With `DELEGA_REQUIRE_AUTH=true`, the server now enforces authentication on every `/api/*` route, not just the subset of handlers that explicitly requested the auth dependency.
+With `DELEGA_REQUIRE_AUTH=true`, the server enforces authentication on every `/api/*` route. Admin-only routes such as agent management, project management, and webhooks additionally require an admin key.
+
+For frontend builders, the supported behavior is:
+
+- open mode: normal task/project/dashboard routes work without auth
+- auth mode: those same routes work with `X-Agent-Key`
+- management routes stay admin-only when a key is in play
 
 Additional hardening in this repo:
 

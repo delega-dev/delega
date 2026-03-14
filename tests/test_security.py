@@ -14,23 +14,32 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 
-class SecurityHardeningTests(unittest.TestCase):
+def load_test_stack(db_path: Path, require_auth: bool):
+    os.environ["DELEGA_DATABASE_URL"] = f"sqlite:///{db_path}"
+    os.environ["DELEGA_MAX_BODY_BYTES"] = "1024"
+    if require_auth:
+        os.environ["DELEGA_REQUIRE_AUTH"] = "true"
+    else:
+        os.environ.pop("DELEGA_REQUIRE_AUTH", None)
+
+    for module_name in ["database", "models", "schemas", "main"]:
+        sys.modules.pop(module_name, None)
+
+    database = importlib.import_module("database")
+    models = importlib.import_module("models")
+    main = importlib.import_module("main")
+    client = TestClient(main.app)
+    return database, models, main, client
+
+
+class BaseSecurityTestCase(unittest.TestCase):
+    require_auth = True
+
     @classmethod
     def setUpClass(cls):
         cls.tempdir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.tempdir.name) / "delega-test.db"
-        cls.db_path = db_path
-        os.environ["DELEGA_DATABASE_URL"] = f"sqlite:///{db_path}"
-        os.environ["DELEGA_REQUIRE_AUTH"] = "true"
-        os.environ["DELEGA_MAX_BODY_BYTES"] = "1024"
-
-        for module_name in ["database", "models", "schemas", "main"]:
-            sys.modules.pop(module_name, None)
-
-        cls.database = importlib.import_module("database")
-        cls.models = importlib.import_module("models")
-        cls.main = importlib.import_module("main")
-        cls.client = TestClient(cls.main.app)
+        cls.db_path = Path(cls.tempdir.name) / "delega-test.db"
+        cls.database, cls.models, cls.main, cls.client = load_test_stack(cls.db_path, cls.require_auth)
 
     @classmethod
     def tearDownClass(cls):
@@ -45,31 +54,73 @@ class SecurityHardeningTests(unittest.TestCase):
         db = self.database.SessionLocal()
         db.query(self.models.WebhookDelivery).delete()
         db.query(self.models.Webhook).delete()
+        db.query(self.models.Comment).delete()
+        db.query(self.models.SubTask).delete()
         db.query(self.models.Task).delete()
         db.query(self.models.Project).delete()
+        db.query(self.models.PushSubscription).delete()
         db.query(self.models.Agent).delete()
+        db.commit()
+        db.close()
 
+        self.api_key, self.agent_id = self.create_agent(is_admin=True)
+
+    def create_agent(self, *, is_admin: bool, plaintext_only: bool = False):
         api_key = f"dlg_{secrets.token_hex(16)}"
-        key_material = self.main.create_agent_key_material(api_key)
+        fields = {}
+        stored_api_key = api_key
+        if not plaintext_only:
+            fields.update(self.main.create_agent_key_material(api_key))
+            stored_api_key = f"migrated_seed_{secrets.token_hex(4)}"
+
+        db = self.database.SessionLocal()
         agent = self.models.Agent(
             name=f"agent-{secrets.token_hex(4)}",
-            api_key=f"migrated_seed_{secrets.token_hex(4)}",
+            api_key=stored_api_key,
             active=True,
-            is_admin=True,
-            **key_material,
+            is_admin=is_admin,
+            **fields,
         )
         db.add(agent)
         db.commit()
         db.refresh(agent)
+        agent_id = agent.id
         db.close()
+        return api_key, agent_id
 
-        self.api_key = api_key
-        self.agent_id = agent.id
+    def create_project(self, name: str = "Operations"):
+        db = self.database.SessionLocal()
+        project = self.models.Project(name=name, sort_order=1)
+        db.add(project)
+        db.commit()
+        db.refresh(project)
+        project_id = project.id
+        db.close()
+        return project_id
 
-    def test_require_auth_applies_to_all_api_routes(self):
-        response = self.client.get("/api/projects")
-        self.assertEqual(response.status_code, 401)
-        self.assertIn("X-Agent-Key", response.text)
+    def create_task(self, content: str = "Inbox task", *, project_id=None):
+        db = self.database.SessionLocal()
+        task = self.models.Task(
+            content=content,
+            project_id=project_id,
+            created_by_agent_id=self.agent_id,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        task_id = task.id
+        db.close()
+        return task_id
+
+
+class SecurityHardeningTests(BaseSecurityTestCase):
+    require_auth = True
+
+    def test_require_auth_applies_to_frontend_dashboard_routes(self):
+        for path in ["/api/projects", "/api/tasks", "/api/stats"]:
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 401, path)
+            self.assertIn("X-Agent-Key", response.text)
 
     def test_rejects_internal_webhook_targets(self):
         response = self.client.post(
@@ -113,20 +164,7 @@ class SecurityHardeningTests(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
 
     def test_non_admin_agents_cannot_use_admin_routes(self):
-        db = self.database.SessionLocal()
-        worker_key = f"dlg_{secrets.token_hex(16)}"
-        worker_material = self.main.create_agent_key_material(worker_key)
-        worker = self.models.Agent(
-            name=f"worker-{secrets.token_hex(4)}",
-            api_key=f"migrated_seed_{secrets.token_hex(4)}",
-            active=True,
-            is_admin=False,
-            **worker_material,
-        )
-        db.add(worker)
-        db.commit()
-        db.refresh(worker)
-        db.close()
+        worker_key, worker_id = self.create_agent(is_admin=False)
 
         list_res = self.client.get("/api/agents", headers={"X-Agent-Key": worker_key})
         self.assertEqual(list_res.status_code, 403)
@@ -142,28 +180,14 @@ class SecurityHardeningTests(unittest.TestCase):
         self.assertEqual(push_res.status_code, 403)
 
         rotate_res = self.client.post(
-            f"/api/agents/{worker.id}/rotate-key",
+            f"/api/agents/{worker_id}/rotate-key",
             headers={"X-Agent-Key": worker_key},
         )
         self.assertEqual(rotate_res.status_code, 200)
         self.assertIn("api_key", rotate_res.json())
 
     def test_non_admin_agents_only_see_their_tasks(self):
-        db = self.database.SessionLocal()
-        worker_key = f"dlg_{secrets.token_hex(16)}"
-        worker_material = self.main.create_agent_key_material(worker_key)
-        worker = self.models.Agent(
-            name=f"worker-{secrets.token_hex(4)}",
-            api_key=f"migrated_seed_{secrets.token_hex(4)}",
-            active=True,
-            is_admin=False,
-            **worker_material,
-        )
-        db.add(worker)
-        db.commit()
-        db.refresh(worker)
-        worker_id = worker.id
-        db.close()
+        worker_key, worker_id = self.create_agent(is_admin=False)
 
         admin_task_res = self.client.post(
             "/api/tasks",
@@ -189,34 +213,13 @@ class SecurityHardeningTests(unittest.TestCase):
         self.assertEqual(worker_list_res.json()[0]["content"], "shared task")
 
     def test_rejects_legacy_plaintext_only_agent_keys(self):
-        db = self.database.SessionLocal()
-        legacy_key = f"dlg_{secrets.token_hex(16)}"
-        legacy_agent = self.models.Agent(
-            name=f"legacy-{secrets.token_hex(4)}",
-            api_key=legacy_key,
-            active=True,
-            is_admin=False,
-        )
-        db.add(legacy_agent)
-        db.commit()
-        db.close()
+        legacy_key, _legacy_id = self.create_agent(is_admin=False, plaintext_only=True)
 
         response = self.client.get("/api/tasks", headers={"X-Agent-Key": legacy_key})
         self.assertEqual(response.status_code, 401)
 
     def test_auth_migration_backfills_plaintext_agent_keys(self):
-        db = self.database.SessionLocal()
-        legacy_key = f"dlg_{secrets.token_hex(16)}"
-        legacy_agent = self.models.Agent(
-            name=f"legacy-backfill-{secrets.token_hex(4)}",
-            api_key=legacy_key,
-            active=True,
-            is_admin=False,
-        )
-        db.add(legacy_agent)
-        db.commit()
-        legacy_id = legacy_agent.id
-        db.close()
+        legacy_key, legacy_id = self.create_agent(is_admin=False, plaintext_only=True)
 
         migration_path = BACKEND_DIR / "migrations" / "005_harden_agent_auth.py"
         spec = importlib.util.spec_from_file_location("migration_005_harden_agent_auth", migration_path)
@@ -237,6 +240,30 @@ class SecurityHardeningTests(unittest.TestCase):
 
         response = self.client.get("/api/tasks", headers={"X-Agent-Key": legacy_key})
         self.assertEqual(response.status_code, 200)
+
+
+class OpenModeCompatibilityTests(BaseSecurityTestCase):
+    require_auth = False
+
+    def test_open_mode_dashboard_routes_work_without_auth(self):
+        project_id = self.create_project()
+        self.create_task("Ship docs update", project_id=project_id)
+
+        projects_res = self.client.get("/api/projects")
+        self.assertEqual(projects_res.status_code, 200)
+        self.assertEqual(len(projects_res.json()), 1)
+        self.assertEqual(projects_res.json()[0]["name"], "Operations")
+
+        tasks_res = self.client.get("/api/tasks")
+        self.assertEqual(tasks_res.status_code, 200)
+        self.assertEqual(len(tasks_res.json()), 1)
+        self.assertEqual(tasks_res.json()[0]["content"], "Ship docs update")
+
+        stats_res = self.client.get("/api/stats")
+        self.assertEqual(stats_res.status_code, 200)
+        body = stats_res.json()
+        self.assertEqual(body["total_tasks"], 1)
+        self.assertIn("Operations", body["by_project"])
 
 
 if __name__ == "__main__":
