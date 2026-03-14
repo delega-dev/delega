@@ -30,4 +30,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
 
 # Start server: main.py creates all tables via SQLAlchemy on startup,
 # then migration adds agent columns. We chain them so tables exist before migration runs.
-CMD ["sh", "-c", "cd /app/backend && python -c 'from database import engine; from models import Base; Base.metadata.create_all(bind=engine)' && python /app/backend/migrations/001_add_agents.py && python /app/backend/main.py"]
+CMD ["sh", "-c", "cd /app/backend && python -c 'from database import engine; from models import Base; Base.metadata.create_all(bind=engine)' && python /app/backend/migrations/001_add_agents.py && python /app/backend/migrations/002_add_webhooks.py && python /app/backend/migrations/003_add_delegation.py && python /app/backend/migrations/004_add_context.py && python /app/backend/migrations/005_harden_agent_auth.py && python /app/backend/main.py"]

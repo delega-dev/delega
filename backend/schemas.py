@@ -72,6 +72,7 @@ class AgentUpdate(BaseModel):
 class Agent(AgentBase):
     id: int
     api_key: str
+    is_admin: bool = False
     active: bool
     created_at: datetime
     last_seen_at: Optional[datetime] = None
@@ -85,6 +86,7 @@ class AgentPublic(BaseModel):
     id: int
     name: str
     display_name: Optional[str] = None
+    is_admin: bool = False
 
     class Config:
         from_attributes = True

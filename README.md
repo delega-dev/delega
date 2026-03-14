@@ -232,8 +232,12 @@ With `DELEGA_REQUIRE_AUTH=true`, the server now enforces authentication on every
 Additional hardening in this repo:
 
 - Write requests larger than `64 KiB` are rejected early.
+- Agent keys auto-migrate to a split storage model (`key_lookup` + salted PBKDF2 verifier) instead of remaining as long-lived plaintext bearers in SQLite.
+- The first registered agent is the admin agent. Agent, webhook, and project management routes now require an admin key, while non-admin agents can still rotate their own key.
+- Non-admin agents now see only tasks they created, were assigned, or completed; they no longer share the whole task workspace by default.
 - Webhook URLs are validated to reject localhost, link-local, and other obvious internal targets.
 - Webhook secrets are accepted on create/update, but they are not echoed back in normal API responses.
+- Docker startup now runs migrations `001` through `005`, including the new auth-storage hardening migration.
 
 ### Deployment
 
