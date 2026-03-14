@@ -49,7 +49,7 @@ class SecurityHardeningTests(unittest.TestCase):
         db.query(self.models.Agent).delete()
 
         api_key = f"dlg_{secrets.token_hex(16)}"
-        agent = self.models.Agent(name=f"agent-{secrets.token_hex(4)}", api_key=api_key, active=True)
+        agent = self.models.Agent(name=f"agent-{secrets.token_hex(4)}", api_key=api_key, active=True, is_admin=True)
         db.add(agent)
         db.commit()
         db.refresh(agent)
@@ -103,6 +103,75 @@ class SecurityHardeningTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 413)
+
+    def test_non_admin_agents_cannot_use_admin_routes(self):
+        db = self.database.SessionLocal()
+        worker_key = f"dlg_{secrets.token_hex(16)}"
+        worker = self.models.Agent(
+            name=f"worker-{secrets.token_hex(4)}",
+            api_key=worker_key,
+            active=True,
+            is_admin=False,
+        )
+        db.add(worker)
+        db.commit()
+        db.refresh(worker)
+        db.close()
+
+        list_res = self.client.get("/api/agents", headers={"X-Agent-Key": worker_key})
+        self.assertEqual(list_res.status_code, 403)
+
+        webhook_res = self.client.post(
+            "/api/webhooks",
+            headers={"X-Agent-Key": worker_key},
+            json={"url": "https://example.com/hook", "events": ["task.created"]},
+        )
+        self.assertEqual(webhook_res.status_code, 403)
+
+        rotate_res = self.client.post(
+            f"/api/agents/{worker.id}/rotate-key",
+            headers={"X-Agent-Key": worker_key},
+        )
+        self.assertEqual(rotate_res.status_code, 200)
+        self.assertIn("api_key", rotate_res.json())
+
+    def test_non_admin_agents_only_see_their_tasks(self):
+        db = self.database.SessionLocal()
+        worker_key = f"dlg_{secrets.token_hex(16)}"
+        worker = self.models.Agent(
+            name=f"worker-{secrets.token_hex(4)}",
+            api_key=worker_key,
+            active=True,
+            is_admin=False,
+        )
+        db.add(worker)
+        db.commit()
+        db.refresh(worker)
+        worker_id = worker.id
+        db.close()
+
+        admin_task_res = self.client.post(
+            "/api/tasks",
+            headers={"X-Agent-Key": self.api_key},
+            json={"content": "admin-only task"},
+        )
+        self.assertEqual(admin_task_res.status_code, 200)
+
+        worker_list_res = self.client.get("/api/tasks", headers={"X-Agent-Key": worker_key})
+        self.assertEqual(worker_list_res.status_code, 200)
+        self.assertEqual(worker_list_res.json(), [])
+
+        shared_task_res = self.client.post(
+            "/api/tasks",
+            headers={"X-Agent-Key": self.api_key},
+            json={"content": "shared task", "assigned_to_agent_id": worker_id},
+        )
+        self.assertEqual(shared_task_res.status_code, 200)
+
+        worker_list_res = self.client.get("/api/tasks", headers={"X-Agent-Key": worker_key})
+        self.assertEqual(worker_list_res.status_code, 200)
+        self.assertEqual(len(worker_list_res.json()), 1)
+        self.assertEqual(worker_list_res.json()[0]["content"], "shared task")
 
 
 if __name__ == "__main__":

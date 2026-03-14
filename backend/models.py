@@ -13,8 +13,13 @@ class Agent(Base):
     name = Column(String, nullable=False, unique=True, index=True)  # e.g. "doc", "marty"
     display_name = Column(String, nullable=True)  # e.g. "Research Bot"
     api_key = Column(String, nullable=False, unique=True, index=True)  # Bearer token
+    key_hash = Column(String, nullable=True)
+    key_lookup = Column(String, nullable=True, unique=True, index=True)
+    key_salt = Column(String, nullable=True)
+    key_prefix = Column(String, nullable=True)
     description = Column(String, nullable=True)  # What this agent does
     permissions = Column(JSON, default=list)  # e.g. ["tasks:read", "tasks:write", "tasks:delete"]
+    is_admin = Column(Boolean, default=False)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
