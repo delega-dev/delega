@@ -1212,6 +1212,25 @@
 </head>
 <body class="safe-top safe-bottom">
   <div id="app" class="relative z-10">
+    <div
+      v-if="apiError"
+      class="fixed left-1/2 top-4 z-[80] w-[min(92vw,640px)] -translate-x-1/2 rounded-2xl border border-[rgba(255,106,106,0.35)] bg-[rgba(28,12,16,0.95)] px-4 py-3 text-sm text-[#ffd2d2] shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur"
+    >
+      <div class="flex items-start gap-3">
+        <div class="pt-0.5 text-base leading-none">⚠️</div>
+        <div class="flex-1">
+          <p class="font-medium text-[#ffe7e7]">Delega could not load part of the dashboard.</p>
+          <p class="mt-1 text-[13px] leading-5 text-[#ffb7b7]">{{ apiError }}</p>
+        </div>
+        <button
+          @click="dismissApiError"
+          class="rounded-full border border-[rgba(255,255,255,0.12)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[#ffd2d2] transition-colors hover:border-[rgba(255,255,255,0.24)] hover:text-white"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+
     <!-- Desktop Sidebar (visible on md+) -->
     <aside class="desktop-sidebar">
       <!-- Logo -->
@@ -2893,9 +2912,10 @@
 
     createApp({
       setup() {
+        const defaultStats = () => ({ overdue: 0, due_today: 0, upcoming: 0, total_tasks: 0, total_completed: 0, completed_today: 0, by_project: {} });
         const tasks = ref([]);
         const projects = ref([]);
-        const stats = ref({ overdue: 0, due_today: 0, total_tasks: 0, completed_today: 0, by_project: {} });
+        const stats = ref(defaultStats());
         const newTask = ref('');
         const currentTab = ref('today');
         const filterProject = ref(null);
@@ -2911,6 +2931,7 @@
         const isRefreshing = ref(false);
         const touchStartY = ref(0);
         const pullDistance = ref(0);
+        const apiFailures = ref({});
 
         // Inline editor state (desktop)
         const showInlineEditor = ref(false);
@@ -2940,6 +2961,67 @@
         const showMobileNotifications = ref(false);
 
         const API = '/api';
+        const apiError = computed(() => Object.values(apiFailures.value)[0] || '');
+
+        function cloneFallback(value) {
+          if (Array.isArray(value)) return [...value];
+          if (value && typeof value === 'object') return { ...value };
+          return value;
+        }
+
+        function setApiFailure(key, message) {
+          apiFailures.value = { ...apiFailures.value, [key]: message };
+        }
+
+        function clearApiFailure(key) {
+          if (!apiFailures.value[key]) return;
+          const next = { ...apiFailures.value };
+          delete next[key];
+          apiFailures.value = next;
+        }
+
+        function dismissApiError() {
+          apiFailures.value = {};
+        }
+
+        async function fetchApiJson(path, { errorKey, label, expect, fallback } = {}) {
+          try {
+            const res = await fetch(`${API}${path}`);
+            const contentType = res.headers.get('content-type') || '';
+            let payload = null;
+
+            if (contentType.includes('application/json')) {
+              payload = await res.json();
+            } else {
+              const text = await res.text();
+              payload = text ? { detail: text } : null;
+            }
+
+            if (!res.ok) {
+              const detail = typeof payload?.detail === 'string'
+                ? payload.detail
+                : `${label} request failed (${res.status})`;
+              throw new Error(detail);
+            }
+
+            if (expect === 'array' && !Array.isArray(payload)) {
+              throw new Error(`${label} returned an unexpected response`);
+            }
+
+            if (expect === 'object' && (!payload || Array.isArray(payload) || typeof payload !== 'object')) {
+              throw new Error(`${label} returned an unexpected response`);
+            }
+
+            if (errorKey) clearApiFailure(errorKey);
+            return payload;
+          } catch (err) {
+            console.error(`[API] Failed to load ${label}:`, err);
+            if (errorKey) {
+              setApiFailure(errorKey, `${label} failed: ${err.message}`);
+            }
+            return cloneFallback(fallback);
+          }
+        }
         
         // Helper to get local date string (YYYY-MM-DD) in user's timezone
         function getLocalDateString(date = new Date()) {
@@ -3129,8 +3211,12 @@
             url += 'completed=false';
           }
 
-          const res = await fetch(url);
-          let result = await res.json();
+          let result = await fetchApiJson(url.replace(API, ''), {
+            errorKey: 'tasks',
+            label: 'Tasks',
+            expect: 'array',
+            fallback: [],
+          });
           
           // Client-side filter for inbox if API doesn't support no_project param
           if (currentTab.value === 'inbox') {
@@ -3142,18 +3228,30 @@
         
         async function loadAllTasksCache() {
           // Load all tasks (including completed) for filtered count calculations
-          const res = await fetch(`${API}/tasks?include_completed=true`);
-          allTasksCache.value = await res.json();
+          allTasksCache.value = await fetchApiJson('/tasks?include_completed=true', {
+            errorKey: 'taskCounts',
+            label: 'Task counts',
+            expect: 'array',
+            fallback: [],
+          });
         }
 
         async function loadProjects() {
-          const res = await fetch(`${API}/projects`);
-          projects.value = await res.json();
+          projects.value = await fetchApiJson('/projects', {
+            errorKey: 'projects',
+            label: 'Projects',
+            expect: 'array',
+            fallback: [],
+          });
         }
 
         async function loadStats() {
-          const res = await fetch(`${API}/stats`);
-          stats.value = await res.json();
+          stats.value = await fetchApiJson('/stats', {
+            errorKey: 'stats',
+            label: 'Stats',
+            expect: 'object',
+            fallback: defaultStats(),
+          });
         }
 
         async function quickAdd() {
@@ -3512,6 +3610,7 @@
           showProjects, showLabels, showHelp, editingTask, tabs, filteredTasks, overdueTasks, todayOnlyTasks,
           newSubtask, newComment, newLabel, isRefreshing,
           sortBy, sortOptions, inboxCount, allLabels, labelTaskCount,
+          apiError, dismissApiError,
           // Desktop inline editor
           showInlineEditor, inlineTask, showInlineDatePicker, showInlinePriorityPicker,
           currentViewTitle, currentViewSubtitle,
