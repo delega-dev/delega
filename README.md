@@ -17,6 +17,22 @@
 
 ---
 
+## Try it
+
+**MCP (Claude Desktop, Cursor, Windsurf):**
+```
+npx @delega-dev/mcp
+```
+
+**Hosted API (free, 1,000 tasks/month):** [delega.dev](https://delega.dev)
+
+**Self-hosted (MIT, SQLite):**
+```bash
+git clone https://github.com/delega-dev/delega && cd delega/backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && python main.py
+```
+
 ## What is Delega?
 
 Delega is the task backend your AI agents are missing. Instead of bolting task management onto your agent framework, Delega gives agents a shared API for creating tasks, delegating work to each other, and tracking everything through to completion.
@@ -30,6 +46,8 @@ It works with any agent framework (CrewAI, LangGraph, OpenAI Agents SDK) via RES
 AI agents can write code, draft emails, and analyze data. But they can't coordinate.
 
 When Agent A needs Agent B to do something, there's no standard way to hand off that task, track whether it got done, or pass context along. Most teams hack this with message queues, shared databases, or prompt chains. Delega makes it a first-class primitive.
+
+This is the same pattern playing out across agent infrastructure. AgentMail exists because Gmail wasn't built for agents — they raised $6M to build email infrastructure purpose-built for AI. Ramp launched Agent Cards because human credit cards weren't built for autonomous spending. Delega exists because Todoist, Linear, and Asana weren't built for agents. The tools agents need look different from the tools humans need.
 
 - **Agent identity**: Each agent gets an API key. Tasks track who created, assigned, and completed them.
 - **Delegation chains**: Agent A delegates to Agent B, who delegates to Agent C. Full chain visible.
@@ -45,7 +63,7 @@ When Agent A needs Agent B to do something, there's no standard way to hand off 
 | **Agents** | Agent registration, API key auth, per-agent task tracking, identity on every action |
 | **Delegation** | Parent/child task chains, root task tracking, delegation depth, chain visualization |
 | **Context** | JSON context blobs on tasks, PATCH merge for incremental updates |
-| **Webhooks** | 6 lifecycle events, HMAC signatures, delivery logging, auto-disable after failures |
+| **Webhooks** | 7 lifecycle events, HMAC signatures, delivery logging, auto-disable after failures |
 | **Dedup** | Semantic similarity detection via TF-IDF, configurable threshold, `/api/tasks/dedup`, optional `X-Dedup-Check` header |
 | **Security** | API key auth enabled by default (`DELEGA_REQUIRE_AUTH`), rate limiting, configurable CORS |
 | **UI** | PWA with dark theme, push notifications, mobile-friendly |
@@ -78,7 +96,7 @@ docker compose up --build -d
 ### CLI
 
 ```bash
-npm install -g delega-cli
+npm install -g @delega-dev/cli
 delega login
 delega tasks create "Research competitor pricing" --priority 3
 delega tasks list
@@ -90,7 +108,7 @@ See [delega-cli](https://github.com/delega-dev/delega-cli) for all commands.
 ### MCP (Claude Desktop, Cursor, etc.)
 
 ```bash
-npm install -g delega-mcp
+npm install -g @delega-dev/mcp
 ```
 
 Add to your MCP client config:
@@ -99,7 +117,8 @@ Add to your MCP client config:
 {
   "mcpServers": {
     "delega": {
-      "command": "delega-mcp",
+      "command": "npx",
+      "args": ["-y", "@delega-dev/mcp"],
       "env": {
         "DELEGA_API_URL": "http://127.0.0.1:18890"
       }
@@ -176,7 +195,7 @@ For custom frontends:
 | `DELETE` | `/api/webhooks/{id}` | Remove webhook |
 | `GET` | `/api/webhooks/{id}/deliveries` | View delivery history |
 
-**Events:** `task.created`, `task.updated`, `task.completed`, `task.deleted`, `task.assigned`, `task.delegated`
+**Events:** `task.created`, `task.updated`, `task.completed`, `task.deleted`, `task.assigned`, `task.delegated`, `task.commented`
 
 All webhook payloads include HMAC signatures for verification.
 
