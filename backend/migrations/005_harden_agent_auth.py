@@ -9,10 +9,80 @@ Adds:
 - agents.is_admin
 
 Marks the earliest agent as admin if none are marked.
+Backfills recoverable plaintext agent keys into split storage.
 Safe to run multiple times.
 """
 import os
 import sqlite3
+import hashlib
+import secrets
+
+
+KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "120000"))
+
+
+def key_prefix(api_key: str) -> str:
+    return api_key[:12] + "..."
+
+
+def derive_key_lookup(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:32]
+
+
+def derive_key_hash(api_key: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        api_key.encode("utf-8"),
+        salt.encode("utf-8"),
+        KEY_DERIVE_ITERATIONS,
+    ).hex()
+
+
+def backfill_agent_keys(cur: sqlite3.Cursor) -> None:
+    rows = cur.execute(
+        """
+        SELECT id, api_key
+        FROM agents
+        WHERE COALESCE(key_hash, '') = ''
+           OR COALESCE(key_lookup, '') = ''
+           OR COALESCE(key_salt, '') = ''
+           OR COALESCE(key_prefix, '') = ''
+        """
+    ).fetchall()
+
+    backfilled = 0
+    skipped = 0
+    for agent_id, api_key in rows:
+        if not api_key or api_key.startswith("migrated_"):
+            skipped += 1
+            continue
+
+        salt = secrets.token_hex(16)
+        cur.execute(
+            """
+            UPDATE agents
+            SET key_hash = ?,
+                key_lookup = ?,
+                key_salt = ?,
+                key_prefix = ?,
+                api_key = ?
+            WHERE id = ?
+            """,
+            (
+                derive_key_hash(api_key, salt),
+                derive_key_lookup(api_key),
+                salt,
+                key_prefix(api_key),
+                f"migrated_{agent_id}",
+                agent_id,
+            ),
+        )
+        backfilled += 1
+
+    if backfilled:
+        print(f"  Backfilled {backfilled} plaintext agent key(s)")
+    if skipped:
+        print(f"  Skipped {skipped} agent(s) without recoverable plaintext keys")
 
 
 def migrate(db_path: str):
@@ -57,6 +127,8 @@ def migrate(db_path: str):
             """
         )
         print("  Seeded first agent as admin")
+
+    backfill_agent_keys(cur)
 
     conn.commit()
     conn.close()

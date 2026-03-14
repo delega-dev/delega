@@ -22,6 +22,7 @@ import httpx
 import logging
 import threading
 import ipaddress
+import socket
 from urllib.parse import urlparse
 
 from pywebpush import webpush, WebPushException
@@ -128,20 +129,34 @@ def validate_webhook_url(url: str) -> Optional[str]:
     ):
         return "Webhook URL cannot point to internal addresses"
 
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return None
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
-    if (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    ):
-        return "Webhook URL cannot point to internal addresses"
+    try:
+        resolved = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return "Webhook host could not be resolved"
+
+    seen = set()
+    for _family, _socktype, _proto, _canonname, sockaddr in resolved:
+        address = sockaddr[0]
+        if "%" in address:
+            address = address.split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if ip in seen:
+            continue
+        seen.add(ip)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return "Webhook URL cannot point to internal addresses"
 
     return None
 
@@ -194,25 +209,11 @@ def authenticate_agent_key(db: Session, api_key: str) -> Optional[models.Agent]:
     ).first()
     if agent:
         if not agent.key_salt:
-            migrate_agent_key(agent, api_key)
-            db.commit()
-            db.refresh(agent)
-            return agent
+            return None
         if derive_key_hash(api_key, agent.key_salt) == agent.key_hash:
             return agent
         return None
-
-    agent = db.query(models.Agent).filter(
-        models.Agent.api_key == api_key,
-        models.Agent.active == True,
-    ).first()
-    if not agent:
-        return None
-
-    migrate_agent_key(agent, api_key)
-    db.commit()
-    db.refresh(agent)
-    return agent
+    return None
 
 
 def is_admin_agent(agent: Optional[models.Agent]) -> bool:
@@ -230,6 +231,29 @@ def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agen
     if not current.is_admin:
         raise HTTPException(status_code=403, detail=detail)
     return current
+
+
+def require_loopback_request(request: Request, detail: str) -> None:
+    client_host = request.client.host if request.client else ""
+    try:
+        client_ip = ipaddress.ip_address(client_host.split("%", 1)[0])
+    except ValueError:
+        raise HTTPException(status_code=403, detail=detail)
+    if not client_ip.is_loopback:
+        raise HTTPException(status_code=403, detail=detail)
+
+
+def authorize_push_request(
+    request: Request,
+    agent: Optional[models.Agent],
+    detail: str = "Push routes require an admin agent key or loopback access",
+) -> None:
+    if agent:
+        require_admin_agent(agent, detail)
+        return
+    if REQUIRE_AUTH:
+        raise HTTPException(status_code=401, detail="X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)")
+    require_loopback_request(request, detail)
 
 
 def apply_task_scope(query, agent: Optional[models.Agent]):
@@ -565,7 +589,10 @@ def fire_webhooks(event: str, task_data: dict, agent_data: dict = None, user_age
                 success = False
 
                 try:
-                    with httpx.Client(timeout=10) as client:
+                    validation_error = validate_webhook_url(wh.url)
+                    if validation_error:
+                        raise ValueError(validation_error)
+                    with httpx.Client(timeout=10, follow_redirects=False) as client:
                         resp = client.post(wh.url, content=payload_json, headers=headers)
                         status_code = resp.status_code
                         response_body = resp.text[:500]
@@ -1528,8 +1555,12 @@ def get_stats(
 # ============ Push Notification Endpoints ============
 
 @app.get("/api/push/vapid-key")
-def get_vapid_public_key():
+def get_vapid_public_key(
+    request: Request,
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Return the public VAPID key for frontend subscription"""
+    authorize_push_request(request, current_agent)
     keys = get_vapid_keys()
     return {"publicKey": keys["public_key"]}
 
@@ -1537,9 +1568,12 @@ def get_vapid_public_key():
 @app.post("/api/push/subscribe", response_model=schemas.PushSubscription)
 def subscribe_push(
     subscription: schemas.PushSubscriptionCreate,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Register a push subscription"""
+    authorize_push_request(request, current_agent)
     # Check if endpoint already exists
     existing = db.query(models.PushSubscription).filter(
         models.PushSubscription.endpoint == subscription.endpoint
@@ -1570,10 +1604,13 @@ def subscribe_push(
 
 @app.delete("/api/push/unsubscribe")
 def unsubscribe_push(
+    request: Request,
     endpoint: str = Query(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Remove a push subscription"""
+    authorize_push_request(request, current_agent)
     sub = db.query(models.PushSubscription).filter(
         models.PushSubscription.endpoint == endpoint
     ).first()
@@ -1586,8 +1623,13 @@ def unsubscribe_push(
 
 
 @app.get("/api/push/subscriptions", response_model=list[schemas.PushSubscription])
-def list_subscriptions(db: Session = Depends(get_db)):
+def list_subscriptions(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """List all active push subscriptions"""
+    authorize_push_request(request, current_agent)
     return db.query(models.PushSubscription).filter(
         models.PushSubscription.active == True
     ).all()
@@ -1596,9 +1638,12 @@ def list_subscriptions(db: Session = Depends(get_db)):
 @app.post("/api/push/send", response_model=schemas.PushNotificationResponse)
 def send_push_notification(
     notification: schemas.PushNotificationSend,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Send a push notification to all active subscriptions."""
+    authorize_push_request(request, current_agent)
     keys = get_vapid_keys()
     subscriptions = db.query(models.PushSubscription).filter(
         models.PushSubscription.active == True
@@ -1665,15 +1710,22 @@ def send_push_notification(
 
 
 @app.post("/api/push/test")
-def test_push_notification(db: Session = Depends(get_db)):
+def test_push_notification(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_agent: Optional[models.Agent] = Depends(get_current_agent),
+):
     """Send a test notification to all subscriptions"""
+    authorize_push_request(request, current_agent)
     return send_push_notification(
         schemas.PushNotificationSend(
             title="🧪 Test Notification",
             body="If you see this, push notifications are working!",
             tag="test"
         ),
-        db
+        request,
+        db,
+        current_agent,
     )
 
 
