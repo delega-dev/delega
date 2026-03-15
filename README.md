@@ -246,6 +246,7 @@ chain = requests.get(f"{API}/api/tasks/{task['id']}/chain").json()
 | `DELEGA_REQUIRE_AUTH` | `true` | Require `X-Agent-Key` on all API routes |
 | `DELEGA_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `DELEGA_DATABASE_URL` | _(auto)_ | Full SQLAlchemy URL (for Postgres, etc.) |
+| `DELEGA_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow webhook URLs pointing to private/localhost IPs |
 
 ### Security
 
