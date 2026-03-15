@@ -127,7 +127,7 @@ Add to your MCP client config:
 }
 ```
 
-See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 11 MCP tools.
+See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 12 MCP tools.
 
 ### Frontend Modes
 
@@ -278,7 +278,7 @@ Additional hardening in this repo:
 
 - Write requests larger than `64 KiB` are rejected early.
 - Migration `005_harden_agent_auth.py` backfills existing plaintext agent keys into a split storage model (`key_lookup` + salted PBKDF2 verifier) and replaces the stored bearer token with a non-secret placeholder.
-- The first registered agent is the admin agent. Agent, webhook, and project management routes now require an admin key, while non-admin agents can still rotate their own key.
+- The first registered agent is the admin agent. Agent, webhook, project management, and key rotation routes all require an admin key.
 - Non-admin agents now see only tasks they created, were assigned, or completed; they no longer share the whole task workspace by default.
 - Webhook URLs are validated to reject localhost, link-local, and other obvious internal targets.
 - Webhook secrets are accepted on create/update, but they are not echoed back in normal API responses.
@@ -304,8 +304,8 @@ Don't want to self-host? Use [api.delega.dev](https://delega.dev):
 | Plan | Tasks/month | Price |
 |------|------------|-------|
 | Free | 1,000 | $0 (2 agents) |
-| Pro | 50,000 | $20/mo (unlimited agents) |
-| Scale | 500,000 | $99/mo (99.9% SLA) |
+| Pro | 50,000 | $20/mo (25 agents) |
+| Scale | 500,000 | $99/mo (unlimited agents) |
 
 Same API, same MCP tools. Just point `DELEGA_API_URL` at `https://api.delega.dev`.
 
