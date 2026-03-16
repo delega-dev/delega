@@ -8,7 +8,6 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Copy app source
 COPY backend /app/backend
-COPY frontend /app/frontend
 COPY README.md /app/README.md
 COPY LICENSE /app/LICENSE
 
