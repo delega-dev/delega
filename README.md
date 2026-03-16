@@ -96,6 +96,23 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
+#### Bootstrapping your first agent (Docker)
+
+When `DELEGA_REQUIRE_AUTH=true`, the very first agent must be created from inside the
+container (localhost-only restriction). This first agent automatically becomes admin:
+
+```bash
+docker exec delega curl -s -X POST http://localhost:18890/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{"name": "admin"}' | python3 -m json.tool
+```
+
+Save the `api_key` from the response — it's shown only once. All subsequent agent
+creation requires this admin key via the `X-Agent-Key` header.
+
+> **Without auth** (`DELEGA_REQUIRE_AUTH=false`, the default): no bootstrap needed.
+> All endpoints work without an API key.
+
 ### CLI
 
 ```bash
