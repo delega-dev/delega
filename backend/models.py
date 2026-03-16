@@ -62,21 +62,6 @@ class WebhookDelivery(Base):
     webhook = relationship("Webhook")
 
 
-class PushSubscription(Base):
-    """Web Push notification subscription"""
-    __tablename__ = "push_subscriptions"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    endpoint = Column(String, nullable=False, unique=True, index=True)
-    p256dh_key = Column(String, nullable=False)  # Public key
-    auth_key = Column(String, nullable=False)     # Auth secret
-    user_agent = Column(String, nullable=True)    # For debugging
-    device_name = Column(String, nullable=True)   # Friendly name (e.g., "My iPhone")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_used_at = Column(DateTime(timezone=True), nullable=True)
-    active = Column(Boolean, default=True)        # Can disable without deleting
-
-
 class Project(Base):
     __tablename__ = "projects"
     
