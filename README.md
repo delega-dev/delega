@@ -89,8 +89,6 @@ python main.py
 
 API is live at `http://localhost:18890`. Interactive docs at `/docs`.
 
-The built-in web UI is served from the same host at `http://localhost:18890`. If you're building your own frontend, point it at the API base `http://localhost:18890/api`.
-
 ### Docker
 
 ```bash
@@ -133,20 +131,6 @@ Add to your MCP client config:
 ```
 
 See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 11 MCP tools.
-
-### Frontend Modes
-
-Self-hosted Delega supports two frontend/API modes:
-
-- **Auth mode** (default): every `/api/*` request needs `X-Agent-Key`, and admin-only routes still require an admin agent key.
-- **Open mode** (`DELEGA_REQUIRE_AUTH=false`): local-only opt-out for single-user development when you explicitly want the built-in frontend and custom frontends to call `/api/*` without `X-Agent-Key`.
-
-For custom frontends:
-
-- Target the API base directly: `http://localhost:18890/api`
-- In auth mode, include `X-Agent-Key: dlg_...` on every request
-- In open mode, omit `X-Agent-Key`
-- Push subscription routes are loopback-or-admin in open mode, so remote browser frontends should enable auth mode if they need push management
 
 ## API Reference
 
@@ -255,9 +239,7 @@ chain = requests.get(f"{API}/api/tasks/{task['id']}/chain").json()
 
 ### Security
 
-By default, Delega runs in **auth mode**. The built-in frontend can store an API key locally in the browser, and all `/api/*` requests send that key when authentication is enabled.
-
-For first-time setup with auth enabled, bootstrap the first admin agent from the same machine:
+By default, Delega requires authentication on all API routes. Bootstrap the first admin agent from the same machine:
 
 ```bash
 curl -X POST http://localhost:18890/api/agents \
@@ -270,21 +252,13 @@ That unauthenticated bootstrap path is allowed only when there are no agents yet
 
 Then pass the key on every request: `X-Agent-Key: dlg_...`
 
-If you explicitly want the old local open mode, set `DELEGA_REQUIRE_AUTH=false`. Do that only for single-user local development.
+For local single-user development, you can opt out with `DELEGA_REQUIRE_AUTH=false`. Not recommended for production.
 
-With `DELEGA_REQUIRE_AUTH=true`, the server enforces authentication on every `/api/*` route. Admin-only routes such as agent management, project management, and webhooks additionally require an admin key.
-
-For frontend builders, the supported behavior is:
-
-- auth mode: normal task/project/dashboard routes work with `X-Agent-Key`
-- open mode: those same routes work without auth only when you explicitly set `DELEGA_REQUIRE_AUTH=false`
-- management routes stay admin-only when a key is in play
-
-Additional hardening in this repo:
+Additional hardening:
 
 - Write requests larger than `64 KiB` are rejected early.
 - Migration `005_harden_agent_auth.py` backfills existing plaintext agent keys into a split storage model (`key_lookup` + salted PBKDF2 verifier) and replaces the stored bearer token with a non-secret placeholder.
-- The first registered agent is the admin agent. Agent, webhook, project management, and key rotation routes all require an admin key.
+- The first registered agent is the admin agent. Agent, webhook, and project management routes require an admin key. Non-admin agents can rotate their own key; rotating another agent's key requires an admin key.
 - Non-admin agents now see only tasks they created, were assigned, or completed; they no longer share the whole task workspace by default.
 - Webhook URLs are validated to reject localhost, link-local, and other obvious internal targets.
 - Webhook secrets are accepted on create/update, but they are not echoed back in normal API responses.
