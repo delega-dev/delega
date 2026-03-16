@@ -72,7 +72,6 @@ This is the same pattern playing out across agent infrastructure. AgentMail exis
 | **Webhooks** | 7 lifecycle events, HMAC signatures, delivery logging, auto-disable after failures |
 | **Dedup** | Semantic similarity detection via TF-IDF, configurable threshold, `/api/tasks/dedup`, optional `X-Dedup-Check` header |
 | **Security** | API key auth enabled by default (`DELEGA_REQUIRE_AUTH`), rate limiting, configurable CORS |
-| **UI** | Dashboard with dark theme, mobile-friendly |
 | **Database** | SQLite (one file, zero ops) or Postgres |
 
 ## Quick Start
@@ -330,7 +329,6 @@ Most task APIs (Todoist, Linear, Asana) were built for humans. Delega was built 
 
 - **Backend**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
 - **Database**: [SQLite](https://sqlite.org/) via SQLAlchemy (Postgres supported)
-- **Frontend**: Dashboard (HTML + CSS)
 - **CLI**: [delega-cli](https://github.com/delega-dev/delega-cli) (TypeScript)
 - **MCP**: [delega-mcp](https://github.com/delega-dev/delega-mcp) (TypeScript)
 - **Dedup**: scikit-learn TF-IDF (local, zero API cost)
