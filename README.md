@@ -18,7 +18,7 @@
 ---
 
 <p align="center">
-  <img src="https://delega.dev/demo.gif" alt="Delega demo: three AI agents collaborating on a bug fix" width="720">
+  <img src="https://github.com/delega-dev/delega/releases/download/v1.0.0/delega-demo.gif" alt="Delega demo: three AI agents collaborating on a bug fix" width="720">
 </p>
 
 ---
