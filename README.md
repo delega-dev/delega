@@ -127,7 +127,7 @@ Add to your MCP client config:
 }
 ```
 
-See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 12 MCP tools.
+See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 11 MCP tools.
 
 ### Frontend Modes
 
