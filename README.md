@@ -17,6 +17,12 @@
 
 ---
 
+<p align="center">
+  <img src="https://delega.dev/demo.gif" alt="Delega demo: three AI agents collaborating on a bug fix" width="720">
+</p>
+
+---
+
 ## Try it
 
 **MCP (Claude Desktop, Cursor, Windsurf):**
