@@ -18,7 +18,7 @@ import hashlib
 import secrets
 
 
-KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "120000"))
+KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "100000"))
 
 
 def key_prefix(api_key: str) -> str:

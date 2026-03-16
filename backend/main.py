@@ -35,7 +35,7 @@ def env_flag(name: str, default: bool) -> bool:
 
 REQUIRE_AUTH = env_flag("DELEGA_REQUIRE_AUTH", True)
 MAX_JSON_BODY_BYTES = int(os.environ.get("DELEGA_MAX_BODY_BYTES", "65536"))
-KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "120000"))
+KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "100000"))
 CORS_ORIGINS = [
     o.strip() for o in
     os.environ.get("DELEGA_CORS_ORIGINS", "http://localhost:18890,http://localhost:5173,http://127.0.0.1:18890").split(",")
