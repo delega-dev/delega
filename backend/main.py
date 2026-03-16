@@ -3,8 +3,6 @@ Task infrastructure for AI agents.
 """
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from starlette.responses import JSONResponse
 from collections import defaultdict
 import time as _time
@@ -24,8 +22,6 @@ import threading
 import ipaddress
 import socket
 from urllib.parse import urlparse
-
-from pywebpush import webpush, WebPushException
 
 logger = logging.getLogger("delega")
 
@@ -51,17 +47,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import engine, get_db, SessionLocal, Base
 import models
 import schemas
-
-# VAPID keys path
-VAPID_KEYS_PATH = os.path.join(os.path.dirname(__file__), "vapid_keys.json")
-
-
-def get_vapid_keys():
-    """Load VAPID keys from JSON file"""
-    if not os.path.exists(VAPID_KEYS_PATH):
-        raise HTTPException(status_code=500, detail="VAPID keys not configured. Run generate_vapid.py first.")
-    with open(VAPID_KEYS_PATH) as f:
-        return json.load(f)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -105,8 +90,8 @@ class _RateLimiter:
 
 _rate_limiter = _RateLimiter()
 
-# Limits: reads 60/min, writes 30/min, push 10/min
-_LIMITS = {"read": 60, "write": 30, "push": 10}
+# Limits: reads 60/min, writes 30/min
+_LIMITS = {"read": 60, "write": 30}
 
 
 def validate_webhook_url(url: str) -> Optional[str]:
@@ -269,19 +254,6 @@ def require_localhost_target(request: Request, detail: str) -> None:
     raise HTTPException(status_code=403, detail=detail)
 
 
-def authorize_push_request(
-    request: Request,
-    agent: Optional[models.Agent],
-    detail: str = "Push routes require an admin agent key or loopback access",
-) -> None:
-    if agent:
-        require_admin_agent(agent, detail)
-        return
-    if REQUIRE_AUTH:
-        raise HTTPException(status_code=401, detail="X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)")
-    require_loopback_request(request, detail)
-
-
 def is_initial_agent_bootstrap_request(request: Request) -> bool:
     return request.method.upper() == "POST" and request.url.path == "/api/agents"
 
@@ -355,9 +327,7 @@ async def rate_limit_middleware(request: Request, call_next):
         return await call_next(request)
     
     # Determine tier
-    if path.startswith("/api/push"):
-        tier = "push"
-    elif method in ("POST", "PUT", "DELETE", "PATCH"):
+    if method in ("POST", "PUT", "DELETE", "PATCH"):
         tier = "write"
     else:
         tier = "read"
@@ -1669,187 +1639,10 @@ def get_stats(
     )
 
 
-# ============ Push Notification Endpoints ============
-
-@app.get("/api/push/vapid-key")
-def get_vapid_public_key(
-    request: Request,
-    current_agent: Optional[models.Agent] = Depends(get_current_agent),
-):
-    """Return the public VAPID key for frontend subscription"""
-    authorize_push_request(request, current_agent)
-    keys = get_vapid_keys()
-    return {"publicKey": keys["public_key"]}
-
-
-@app.post("/api/push/subscribe", response_model=schemas.PushSubscription)
-def subscribe_push(
-    subscription: schemas.PushSubscriptionCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_agent: Optional[models.Agent] = Depends(get_current_agent),
-):
-    """Register a push subscription"""
-    authorize_push_request(request, current_agent)
-    # Check if endpoint already exists
-    existing = db.query(models.PushSubscription).filter(
-        models.PushSubscription.endpoint == subscription.endpoint
-    ).first()
-    
-    if existing:
-        # Update existing subscription (keys may change)
-        existing.p256dh_key = subscription.keys.p256dh
-        existing.auth_key = subscription.keys.auth
-        existing.device_name = subscription.device_name
-        existing.active = True
-        db.commit()
-        db.refresh(existing)
-        return existing
-    
-    # Create new subscription
-    db_sub = models.PushSubscription(
-        endpoint=subscription.endpoint,
-        p256dh_key=subscription.keys.p256dh,
-        auth_key=subscription.keys.auth,
-        device_name=subscription.device_name
-    )
-    db.add(db_sub)
-    db.commit()
-    db.refresh(db_sub)
-    return db_sub
-
-
-@app.delete("/api/push/unsubscribe")
-def unsubscribe_push(
-    request: Request,
-    endpoint: str = Query(...),
-    db: Session = Depends(get_db),
-    current_agent: Optional[models.Agent] = Depends(get_current_agent),
-):
-    """Remove a push subscription"""
-    authorize_push_request(request, current_agent)
-    sub = db.query(models.PushSubscription).filter(
-        models.PushSubscription.endpoint == endpoint
-    ).first()
-    
-    if sub:
-        db.delete(sub)
-        db.commit()
-    
-    return {"ok": True}
-
-
-@app.get("/api/push/subscriptions", response_model=list[schemas.PushSubscription])
-def list_subscriptions(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_agent: Optional[models.Agent] = Depends(get_current_agent),
-):
-    """List all active push subscriptions"""
-    authorize_push_request(request, current_agent)
-    return db.query(models.PushSubscription).filter(
-        models.PushSubscription.active == True
-    ).all()
-
-
-@app.post("/api/push/send", response_model=schemas.PushNotificationResponse)
-def send_push_notification(
-    notification: schemas.PushNotificationSend,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_agent: Optional[models.Agent] = Depends(get_current_agent),
-):
-    """Send a push notification to all active subscriptions."""
-    authorize_push_request(request, current_agent)
-    keys = get_vapid_keys()
-    subscriptions = db.query(models.PushSubscription).filter(
-        models.PushSubscription.active == True
-    ).all()
-    
-    if not subscriptions:
-        return schemas.PushNotificationResponse(sent=0, failed=0, errors=["No active subscriptions"])
-    
-    # Build notification payload
-    payload = {
-        "title": notification.title,
-        "body": notification.body,
-        "icon": notification.icon,
-        "badge": notification.badge,
-        "data": {}
-    }
-    
-    if notification.tag:
-        payload["tag"] = notification.tag
-    if notification.url:
-        payload["data"]["url"] = notification.url
-    elif notification.task_id:
-        payload["data"]["url"] = f"/?task={notification.task_id}"
-    if notification.require_interaction:
-        payload["requireInteraction"] = notification.require_interaction
-    if notification.silent:
-        payload["silent"] = notification.silent
-    
-    sent = 0
-    failed = 0
-    errors = []
-    
-    for sub in subscriptions:
-        subscription_info = {
-            "endpoint": sub.endpoint,
-            "keys": {
-                "p256dh": sub.p256dh_key,
-                "auth": sub.auth_key
-            }
-        }
-        
-        try:
-            webpush(
-                subscription_info=subscription_info,
-                data=json.dumps(payload),
-                vapid_private_key=keys["private_key"],
-                vapid_claims={"sub": keys["contact"]}
-            )
-            sent += 1
-            
-            # Update last_used_at
-            sub.last_used_at = datetime.now()
-            
-        except WebPushException as e:
-            failed += 1
-            errors.append(f"{sub.device_name or 'Unknown'}: {str(e)}")
-            
-            # Mark as inactive if subscription is gone (410 Gone)
-            if e.response and e.response.status_code == 410:
-                sub.active = False
-    
-    db.commit()
-    return schemas.PushNotificationResponse(sent=sent, failed=failed, errors=errors)
-
-
-@app.post("/api/push/test")
-def test_push_notification(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_agent: Optional[models.Agent] = Depends(get_current_agent),
-):
-    """Send a test notification to all subscriptions"""
-    authorize_push_request(request, current_agent)
-    return send_push_notification(
-        schemas.PushNotificationSend(
-            title="🧪 Test Notification",
-            body="If you see this, push notifications are working!",
-            tag="test"
-        ),
-        request,
-        db,
-        current_agent,
-    )
-
-
 # ============ Reminder Scheduler ============
 
 def check_reminders():
-    """Check for due reminders and send push notifications"""
+    """Check for due reminders and mark them as sent."""
     db = SessionLocal()
     try:
         now = datetime.now()
@@ -1864,53 +1657,13 @@ def check_reminders():
         if not due_tasks:
             return
 
-        # Load VAPID keys once
-        if not os.path.exists(VAPID_KEYS_PATH):
-            return
-        with open(VAPID_KEYS_PATH) as f:
-            keys = json.load(f)
-
-        subscriptions = db.query(models.PushSubscription).filter(
-            models.PushSubscription.active == True
-        ).all()
-
-        if not subscriptions:
-            return
-
         for task in due_tasks:
-            payload = json.dumps({
-                "title": "Reminder",
-                "body": task.content,
-                "icon": "/assets/icon-192.png",
-                "badge": "/assets/badge-72.png",
-                "tag": f"reminder-{task.id}",
-                "data": {"url": f"/?task={task.id}"}
-            })
-
-            for sub in subscriptions:
-                subscription_info = {
-                    "endpoint": sub.endpoint,
-                    "keys": {
-                        "p256dh": sub.p256dh_key,
-                        "auth": sub.auth_key
-                    }
-                }
-                try:
-                    webpush(
-                        subscription_info=subscription_info,
-                        data=payload,
-                        vapid_private_key=keys["private_key"],
-                        vapid_claims={"sub": keys["contact"]}
-                    )
-                except WebPushException as e:
-                    if e.response and e.response.status_code == 410:
-                        sub.active = False
-
+            logger.info("Reminder due for task %d: %s", task.id, task.content)
             task.reminder_sent = True
 
         db.commit()
     except Exception as e:
-        print(f"[reminder-scheduler] Error: {e}")
+        logger.error("[reminder-scheduler] Error: %s", e)
     finally:
         db.close()
 
@@ -1927,29 +1680,6 @@ def start_scheduler():
 @app.on_event("shutdown")
 def stop_scheduler():
     scheduler.shutdown(wait=False)
-
-
-# ============ Serve Frontend ============
-
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-ASSETS_DIR = os.path.join(FRONTEND_DIR, "assets")
-
-# Serve static files if frontend exists
-if os.path.exists(FRONTEND_DIR):
-    if os.path.exists(ASSETS_DIR):
-        app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
-    
-    @app.get("/")
-    def serve_frontend():
-        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
-    
-    @app.get("/manifest.json")
-    def serve_manifest():
-        return FileResponse(os.path.join(FRONTEND_DIR, "manifest.json"))
-    
-    @app.get("/sw.js")
-    def serve_sw():
-        return FileResponse(os.path.join(FRONTEND_DIR, "sw.js"))
 
 
 if __name__ == "__main__":
