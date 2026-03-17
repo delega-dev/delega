@@ -25,7 +25,7 @@
 
 ## Try it
 
-**MCP (Claude Code, Cursor, Codex):**
+**MCP (Claude Code, Cursor, Codex, OpenClaw):**
 ```
 npx @delega-dev/mcp
 ```
@@ -43,7 +43,7 @@ pip install -r requirements.txt && python main.py
 
 Delega is the task backend your AI agents are missing. Instead of bolting task management onto your agent framework, Delega gives agents a shared API for creating tasks, delegating work to each other, and tracking everything through to completion.
 
-It works with any agent framework (CrewAI, LangGraph, OpenAI Agents SDK) via REST, from your terminal with the [CLI](https://github.com/delega-dev/delega-cli), or natively with Claude Code, Cursor, and other MCP clients via the [delega-mcp](https://github.com/delega-dev/delega-mcp) package.
+It works with any agent framework (CrewAI, LangGraph, OpenAI Agents SDK) via REST, from your terminal with the [CLI](https://github.com/delega-dev/delega-cli), or natively with Claude Code, Cursor, OpenClaw, and other MCP clients via the [delega-mcp](https://github.com/delega-dev/delega-mcp) package.
 
 **Self-hosted** (free, forever) or **hosted** at [api.delega.dev](https://delega.dev).
 
@@ -125,7 +125,7 @@ delega agents list
 
 See [delega-cli](https://github.com/delega-dev/delega-cli) for all commands.
 
-### MCP (Claude Code, Cursor, etc.)
+### MCP (Claude Code, Cursor, OpenClaw, etc.)
 
 ```bash
 npm install -g @delega-dev/mcp
