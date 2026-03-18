@@ -99,7 +99,7 @@ docker compose up --build -d
 #### Bootstrapping your first agent (Docker)
 
 When `DELEGA_REQUIRE_AUTH=true`, the very first agent must be created from inside the
-container (localhost-only restriction). This first agent automatically becomes admin:
+container (localhost-only restriction). All agents are admin by default:
 
 ```bash
 docker exec delega curl -s -X POST http://localhost:18890/api/agents \
@@ -275,8 +275,8 @@ Additional hardening:
 
 - Write requests larger than `64 KiB` are rejected early.
 - Migration `005_harden_agent_auth.py` backfills existing plaintext agent keys into a split storage model (`key_lookup` + salted PBKDF2 verifier) and replaces the stored bearer token with a non-secret placeholder.
-- The first registered agent is the admin agent. Agent, webhook, and project management routes require an admin key. Non-admin agents can rotate their own key; rotating another agent's key requires an admin key.
-- Non-admin agents now see only tasks they created, were assigned, or completed; they no longer share the whole task workspace by default.
+- All user-created agents are admin by default. Agent, webhook, and project management routes require an admin key. To create a sandboxed agent with limited access, set `restriction_mode: "restricted"` on creation.
+- Restricted agents see only tasks they created, were assigned, or completed; they do not share the whole task workspace.
 - Webhook URLs are validated to reject localhost, link-local, and other obvious internal targets.
 - Webhook secrets are accepted on create/update, but they are not echoed back in normal API responses.
 - Docker startup now runs migrations `001` through `005`, including the new auth-storage hardening migration.

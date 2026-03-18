@@ -77,7 +77,7 @@ delega/
 
 Delega supports two modes:
 
-- **Auth mode** (default): `DELEGA_REQUIRE_AUTH` is unset or `true`. All `/api/*` routes require a valid `X-Agent-Key`. Admin-only routes (agents, projects, webhooks, billing) additionally require `is_admin=1`.
+- **Auth mode** (default): `DELEGA_REQUIRE_AUTH` is unset or `true`. All `/api/*` routes require a valid `X-Agent-Key`. All user-created agents are admin by default. To sandbox an agent, set `restriction_mode: "restricted"` on creation.
 - **Open mode**: `DELEGA_REQUIRE_AUTH=false`. All API endpoints work without an `X-Agent-Key` header. This is a deliberate local-dev opt-out, not the default deployment model.
 
 **Every endpoint must work in both modes.** When adding auth checks:

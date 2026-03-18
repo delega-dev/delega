@@ -534,7 +534,7 @@ def register_agent(
     db_agent = models.Agent(
         **agent.model_dump(),
         api_key=f"pending_{secrets.token_hex(8)}",
-        is_admin=existing_agent_count == 0,
+        is_admin=True,
         **key_material,
     )
     db.add(db_agent)
