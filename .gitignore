@@ -47,3 +47,6 @@ data/
 
 # Node (if applicable)
 node_modules/
+
+# Internal release check (contains infrastructure details)
+scripts/release-check.sh
