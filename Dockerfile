@@ -1,5 +1,8 @@
 FROM python:3.13.3-slim
 
+# Patch OS-level vulnerabilities in base image
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Install backend deps first for better layer caching
