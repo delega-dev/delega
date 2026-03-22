@@ -300,9 +300,9 @@ Don't want to self-host? Use [api.delega.dev](https://delega.dev):
 
 | Plan | Tasks/month | Price |
 |------|------------|-------|
-| Free | 1,000 | $0 (2 agents) |
-| Pro | 50,000 | $20/mo (25 agents) |
-| Scale | 500,000 | $99/mo (unlimited agents) |
+| Free | 1,000 | $0 (5 agents, 1 webhook) |
+| Pro | 50,000 | $20/mo (25 agents, 50 webhooks) |
+| Scale | 500,000 | $99/mo (unlimited agents, 50 webhooks) |
 
 Same API, same MCP tools. Just point `DELEGA_API_URL` at `https://api.delega.dev`.
 
