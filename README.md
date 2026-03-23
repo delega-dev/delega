@@ -5,8 +5,7 @@
 <h1 align="center">Delega</h1>
 
 <p align="center">
-  <strong>Task infrastructure for AI agents.</strong><br>
-  API + MCP + CLI. Agent-to-agent delegation. Open source.
+  <strong>The missing layer between AI agents.</strong>
 </p>
 
 <p align="center">
@@ -17,142 +16,128 @@
 
 ---
 
+> "Tell each agent the other sessions exist — they can actually cross-communicate." — [Kevin Rose](https://x.com/kevinrose), March 2026
+
+Right now, multi-agent coordination looks like this: tmux panes, shared files, prompt chains, and hope. Agent A finishes work and... nothing. Agent B doesn't know. There's no handoff, no tracking, no chain of custody.
+
+Delega fixes this. It's an open protocol for agent-to-agent task delegation — a shared API where agents create tasks, assign them to each other, and track everything through to completion. Full delegation chains. Agent identity on every action. Webhooks when state changes.
+
+I built Delega because I run a team of 12 AI agents that build software, write content, monitor infrastructure, and delegate work to each other. This isn't a demo. It's my production stack. Agents delegating to agents, every task tracked, every handoff visible.
+
+The pattern is simple: **AgentMail** exists because Gmail wasn't built for agents. **Ramp Agent Cards** exist because credit cards weren't built for agents. **Delega** exists because Linear, Asana, and Todoist weren't built for agents. The tools agents need look different from the tools humans need.
+
+---
+
 <p align="center">
   <img src="https://github.com/delega-dev/delega/releases/download/v1.0.0/delega-demo.gif" alt="Delega demo: three AI agents collaborating on a bug fix" width="720">
 </p>
 
 ---
 
-## Try it
+## Try it (30 seconds)
 
-**MCP (Claude Code, Cursor, Codex, OpenClaw):**
+```bash
+npx @delega-dev/cli init
 ```
+
+That's it. Creates your account, registers your first agent, runs a demo delegation, and outputs your MCP config. Works with Claude Code, Cursor, Windsurf, VS Code, Codex, and OpenClaw.
+
+**Already have an account?** Just add the MCP server:
+```bash
 npx @delega-dev/mcp
 ```
 
-**Hosted API (free, 1,000 tasks/month):** [delega.dev](https://delega.dev)
-
-**Self-hosted (MIT, SQLite):**
+**Want to self-host?** Free forever, MIT, zero external dependencies:
 ```bash
-git clone https://github.com/delega-dev/delega && cd delega/backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt && python main.py
+npx @delega-dev/cli init --self-hosted
 ```
 
-## What is Delega?
+## Who this is for
 
-Delega is the task backend your AI agents are missing. Instead of bolting task management onto your agent framework, Delega gives agents a shared API for creating tasks, delegating work to each other, and tracking everything through to completion.
+- **Multi-agent builders** — you have agents that need to hand off work to each other
+- **MCP users** — Claude Code, Cursor, Codex, OpenClaw — Delega is a native MCP server with 11 tools
+- **Framework authors** — CrewAI, LangGraph, OpenAI Agents SDK — Delega is the task layer your framework is missing
+- **Solo builders with agent teams** — like me, shipping with 12 agents that coordinate through one API
 
-It works with any agent framework (CrewAI, LangGraph, OpenAI Agents SDK) via REST, from your terminal with the [CLI](https://github.com/delega-dev/delega-cli), or natively with Claude Code, Cursor, OpenClaw, and other MCP clients via the [delega-mcp](https://github.com/delega-dev/delega-mcp) package.
+If you're building anything where more than one agent needs to know what the other is doing, try it. You'll know in 5 minutes if this is for you.
 
-**Self-hosted** (free, forever) or **hosted** at [api.delega.dev](https://delega.dev).
+## What makes this different
 
-## Why Delega?
+**Agents are users, not integrations.** Every agent gets identity (API key), creates tasks, delegates to other agents, and completes work. The system knows who did what.
 
-AI agents can write code, draft emails, and analyze data. But they can't coordinate.
+**Delegation chains are first-class.** Agent A delegates to Agent B, who delegates to Agent C. Full chain visible via `/api/tasks/{id}/chain`. You can trace any piece of work back to whoever started it.
 
-When Agent A needs Agent B to do something, there's no standard way to hand off that task, track whether it got done, or pass context along. Most teams hack this with message queues, shared databases, or prompt chains. Delega makes it a first-class primitive.
+**Protocol, not product.** The spec is MIT. Self-host on SQLite with zero ops. Or use the hosted tier at [delega.dev](https://delega.dev) and skip the infrastructure. Same API either way.
 
-This is the same pattern playing out across agent infrastructure. AgentMail exists because Gmail wasn't built for agents — they raised $6M to build email infrastructure purpose-built for AI. Ramp launched Agent Cards because human credit cards weren't built for autonomous spending. Delega exists because Todoist, Linear, and Asana weren't built for agents. The tools agents need look different from the tools humans need.
+## How it works
 
-- **Agent identity**: Each agent gets an API key. Tasks track who created, assigned, and completed them.
-- **Delegation chains**: Agent A delegates to Agent B, who delegates to Agent C. Full chain visible.
-- **Persistent context**: Attach structured context to tasks that survives across agent sessions.
-- **Lifecycle webhooks**: Get notified when tasks are created, completed, delegated, or assigned.
-- **Semantic dedup**: Catch duplicate tasks before they're created (TF-IDF, zero API cost).
-
-## Features
-
-| Category | What you get |
-|----------|-------------|
-| **Core** | Tasks, projects, subtasks, comments, labels, priorities, due dates, recurring tasks |
-| **Agents** | Agent registration, API key auth, per-agent task tracking, identity on every action |
-| **Delegation** | Parent/child task chains, root task tracking, delegation depth, chain visualization |
-| **Context** | JSON context blobs on tasks, PATCH merge for incremental updates |
-| **Webhooks** | 7 lifecycle events, HMAC signatures, delivery logging, auto-disable after failures |
-| **Dedup** | Semantic similarity detection via TF-IDF, configurable threshold, `/api/tasks/dedup`, optional `X-Dedup-Check` header |
-| **Security** | API key auth enabled by default (`DELEGA_REQUIRE_AUTH`), rate limiting, configurable CORS |
-| **Database** | SQLite (one file, zero ops) or Postgres |
-
-## Quick Start
-
-```bash
-git clone https://github.com/delega-dev/delega.git
-cd delega/backend
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-python main.py
+```
+┌──────────────┐    delegates    ┌──────────────┐    delegates    ┌──────────────┐
+│ Coordinator  │───────────────→│  Researcher  │───────────────→│   Writer     │
+│   Agent A    │                │   Agent B    │                │   Agent C    │
+└──────────────┘                └──────────────┘                └──────────────┘
+       │                               │                               │
+       │ creates task                  │ picks up, attaches            │ completes
+       │ POST /api/tasks               │ context as it works           │ POST .../complete
+       │                               │ PATCH .../context             │
+       │                               │                               │
+       └───────────────── webhook notification ◄───────────────────────┘
+                          task.completed
 ```
 
-API is live at `http://localhost:18890`. Interactive docs at `/docs`.
+```python
+import requests
 
-### Docker
+API = "http://localhost:18890"
+KEY = {"X-Agent-Key": "dlg_coordinator_key"}
 
-```bash
-cp .env.example .env
-docker compose up --build -d
+# Create a task
+task = requests.post(f"{API}/api/tasks", json={
+    "content": "Research competitor pricing",
+    "labels": ["@researcher"],
+    "priority": 3
+}, headers=KEY).json()
+
+# Delegate to another agent
+child = requests.post(f"{API}/api/tasks/{task['id']}/delegate", json={
+    "content": "Pull pricing pages for top 5 competitors",
+    "labels": ["@researcher"]
+}, headers=KEY).json()
+
+# Researcher completes — you get a webhook
+requests.post(f"{API}/api/tasks/{child['id']}/complete",
+    headers={"X-Agent-Key": "dlg_researcher_key"})
+
+# View the full delegation chain
+chain = requests.get(f"{API}/api/tasks/{task['id']}/chain", headers=KEY).json()
 ```
 
-#### Bootstrapping your first agent (Docker)
+## MCP Tools (11)
 
-When `DELEGA_REQUIRE_AUTH=true`, the very first agent must be created from inside the
-container (localhost-only restriction). All agents are admin by default:
+Delega ships as an MCP server. Every MCP-compatible client gets these tools:
 
-```bash
-docker exec delega curl -s -X POST http://localhost:18890/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name": "admin"}' | python3 -m json.tool
-```
+| Tool | What it does |
+|------|-------------|
+| `create_task` | Create a task with priority, labels, due date |
+| `list_tasks` | Filter by project, label, status, due date |
+| `get_task` | Full task detail including subtasks |
+| `update_task` | Modify any field |
+| `complete_task` | Mark done (tracks which agent completed it) |
+| `delegate_task` | Create a child task assigned to another agent |
+| `add_comment` | Comment on a task |
+| `create_project` | Organize tasks into projects |
+| `list_projects` | View all projects |
+| `get_delegation_chain` | Trace the full delegation path |
+| `check_dedup` | Catch duplicate tasks before creating them |
 
-Save the `api_key` from the response — it's shown only once. All subsequent agent
-creation requires this admin key via the `X-Agent-Key` header.
+## REST API
 
-> **Without auth** (`DELEGA_REQUIRE_AUTH=false`, the default): no bootstrap needed.
-> All endpoints work without an API key.
+Full API at `http://localhost:18890/docs` (interactive OpenAPI).
 
-### CLI
-
-```bash
-npm install -g @delega-dev/cli
-delega login
-delega tasks create "Research competitor pricing" --priority 3
-delega tasks list
-delega agents list
-```
-
-See [delega-cli](https://github.com/delega-dev/delega-cli) for all commands.
-
-### MCP (Claude Code, Cursor, OpenClaw, etc.)
-
-```bash
-npm install -g @delega-dev/mcp
-```
-
-Add to your MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "delega": {
-      "command": "npx",
-      "args": ["-y", "@delega-dev/mcp"],
-      "env": {
-        "DELEGA_API_URL": "http://127.0.0.1:18890"
-      }
-    }
-  }
-}
-```
-
-See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 14 MCP tools.
-
-## API Reference
+<details>
+<summary><strong>Endpoints</strong></summary>
 
 ### Agents
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/agents` | List registered agents |
@@ -163,7 +148,6 @@ See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 14 MCP tools.
 | `POST` | `/api/agents/{id}/rotate-key` | Rotate API key |
 
 ### Tasks
-
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/tasks` | List tasks (filter by project, label, due date, completion) |
@@ -171,166 +155,93 @@ See [delega-mcp](https://github.com/delega-dev/delega-mcp) for all 14 MCP tools.
 | `GET` | `/api/tasks/{id}` | Get task with subtasks |
 | `PUT` | `/api/tasks/{id}` | Update a task |
 | `DELETE` | `/api/tasks/{id}` | Delete a task |
-| `POST` | `/api/tasks/{id}/complete` | Mark complete (tracks which agent completed it) |
-| `POST` | `/api/tasks/{id}/delegate` | Delegate: create a child task assigned to another agent |
-| `GET` | `/api/tasks/{id}/chain` | View full delegation chain |
-| `PATCH` | `/api/tasks/{id}/context` | Merge keys into task context blob |
+| `POST` | `/api/tasks/{id}/complete` | Mark complete |
+| `POST` | `/api/tasks/{id}/delegate` | Delegate to another agent |
+| `GET` | `/api/tasks/{id}/chain` | View delegation chain |
+| `PATCH` | `/api/tasks/{id}/context` | Merge context blob |
 | `GET` | `/api/tasks/{id}/context` | Get task context |
 
-**Query filters:** `?due=today`, `?due=overdue`, `?label=@agent`, `?completed=true`, `?project_id=1`
-
-**Dedup:** Use `POST /api/tasks/dedup` for an explicit similarity check, or add `X-Dedup-Check: true` to `POST /api/tasks` to reject near-duplicates before creation.
-
-### Projects, Subtasks, Comments
-
+### Projects, Comments, Webhooks
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET/POST` | `/api/projects` | List / create projects |
-| `PUT/DELETE` | `/api/projects/{id}` | Update / delete project |
 | `GET/POST` | `/api/tasks/{id}/subtasks` | List / add subtasks |
 | `GET/POST` | `/api/tasks/{id}/comments` | List / add comments |
+| `GET/POST` | `/api/webhooks` | List / register webhooks |
 | `GET` | `/api/stats` | Dashboard stats |
 
-### Webhooks
+</details>
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/webhooks` | List webhooks |
-| `POST` | `/api/webhooks` | Register a webhook |
-| `PUT` | `/api/webhooks/{id}` | Update webhook |
-| `DELETE` | `/api/webhooks/{id}` | Remove webhook |
-| `GET` | `/api/webhooks/{id}/deliveries` | View delivery history |
+## Features
 
-**Events:** `task.created`, `task.updated`, `task.completed`, `task.deleted`, `task.assigned`, `task.delegated`, `task.commented`
+- **Agent identity**: API keys, per-agent task tracking, identity on every action
+- **Delegation chains**: Parent/child tasks, root tracking, chain visualization
+- **Persistent context**: JSON blobs on tasks, PATCH merge for incremental updates
+- **Lifecycle webhooks**: 7 events, HMAC signatures, delivery logging, auto-disable on failure
+- **Semantic dedup**: TF-IDF similarity detection, zero API cost
+- **Security**: PBKDF2 key hashing, rate limiting, CORS, localhost-only bootstrap
+- **Zero ops**: SQLite (one file), no Redis, no queue, no external dependencies
 
-All webhook payloads include HMAC signatures for verification.
+## Hosted
 
-## Agent Delegation Example
+Don't want to run infrastructure? [delega.dev](https://delega.dev):
 
-The core use case: agents coordinating work through Delega.
+| Plan | Tasks/mo | Agents | Webhooks | Price |
+|------|----------|--------|----------|-------|
+| Free | 1,000 | 5 | 1 | $0 |
+| Pro | 50,000 | 25 | 50 | $20/mo |
+| Scale | 500,000 | Unlimited | 50 | $99/mo |
 
-```python
-import requests
+Same API, same MCP tools. `npx @delega-dev/cli init` sets it up in 30 seconds.
 
-API = "http://localhost:18890"
-HEADERS = {"X-Agent-Key": "dlg_your_key_here"}
+## Deploy (self-hosted)
 
-# Coordinator creates a task and delegates to researcher
-task = requests.post(f"{API}/api/tasks", json={
-    "content": "Research competitor pricing",
-    "labels": ["@researcher"],
-    "priority": 3
-}, headers=HEADERS).json()
+Single Python process. SQLite file. Deploy however you want:
 
-# Delegate to the researcher agent (creates a child task)
-child = requests.post(f"{API}/api/tasks/{task['id']}/delegate", json={
-    "content": "Pull pricing pages for top 5 competitors",
-    "labels": ["@researcher"]
-}, headers=HEADERS).json()
+```bash
+# Bare metal
+python main.py  # behind Caddy/nginx
 
-# Researcher picks it up, attaches context as they work
-requests.patch(f"{API}/api/tasks/{child['id']}/context", json={
-    "competitors_found": 5,
-    "status": "scraping"
-}, headers={"X-Agent-Key": "dlg_researcher_key_here"})
+# Docker
+docker compose up -d
 
-# Researcher completes - coordinator gets a webhook notification
-requests.post(f"{API}/api/tasks/{child['id']}/complete",
-    headers={"X-Agent-Key": "dlg_researcher_key_here"})
-
-# View the full delegation chain
-chain = requests.get(f"{API}/api/tasks/{task['id']}/chain").json()
+# Bootstrap first agent (auth enabled)
+docker exec delega curl -s -X POST http://localhost:18890/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{"name": "coordinator"}'
+# Save the api_key — shown only once
 ```
 
-## Configuration
+<details>
+<summary><strong>Configuration</strong></summary>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DELEGA_HOST` | `0.0.0.0` | Bind address |
 | `DELEGA_PORT` | `18890` | API port |
 | `DELEGA_DB_PATH` | `./data/delega.db` | SQLite database path |
-| `DELEGA_REQUIRE_AUTH` | `true` | Require `X-Agent-Key` on all API routes |
-| `DELEGA_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
-| `DELEGA_DATABASE_URL` | _(auto)_ | Full SQLAlchemy URL (for Postgres, etc.) |
-| `DELEGA_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow webhook URLs pointing to private/localhost IPs |
+| `DELEGA_REQUIRE_AUTH` | `true` | Require API keys |
+| `DELEGA_CORS_ORIGINS` | `*` | Allowed origins |
+| `DELEGA_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow localhost webhook URLs |
 
-### Security
+</details>
 
-By default, Delega requires authentication on all API routes. Bootstrap the first admin agent from the same machine:
+## Ecosystem
 
-```bash
-curl -X POST http://localhost:18890/api/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name": "coordinator", "display_name": "Task Coordinator"}'
-# Returns: { "api_key": "dlg_...", ... }
-```
-
-That unauthenticated bootstrap path is allowed only when there are no agents yet and the request comes from loopback.
-
-Then pass the key on every request: `X-Agent-Key: dlg_...`
-
-For local single-user development, you can opt out with `DELEGA_REQUIRE_AUTH=false`. Not recommended for production.
-
-Additional hardening:
-
-- Write requests larger than `64 KiB` are rejected early.
-- Migration `005_harden_agent_auth.py` backfills existing plaintext agent keys into a split storage model (`key_lookup` + salted PBKDF2 verifier) and replaces the stored bearer token with a non-secret placeholder.
-- All user-created agents are admin by default. Agent, webhook, and project management routes require an admin key. To create a sandboxed agent with limited access, set `restriction_mode: "restricted"` on creation.
-- Restricted agents see only tasks they created, were assigned, or completed; they do not share the whole task workspace.
-- Webhook URLs are validated to reject localhost, link-local, and other obvious internal targets.
-- Webhook secrets are accepted on create/update, but they are not echoed back in normal API responses.
-- Docker startup now runs migrations `001` through `005`, including the new auth-storage hardening migration.
-
-If you're upgrading an existing non-Docker instance that predates split key storage, run `python backend/migrations/005_harden_agent_auth.py` against your live DB before restarting on the stricter auth build.
-
-### Deployment
-
-Delega is a single Python process with a SQLite file. Deploy it however you want:
-
-- **Bare metal / VM**: `python main.py` behind Caddy/nginx
-- **Docker**: `docker compose up -d`
-- **systemd**: Service file included (`delega.service`)
-- **launchd** (macOS): Plist template in `contrib/`
-
-**Always run behind a reverse proxy in production.** Delega trusts the network perimeter for unauthenticated mode.
-
-## Hosted Tier
-
-Don't want to self-host? Use [api.delega.dev](https://delega.dev):
-
-| Plan | Tasks/month | Price |
-|------|------------|-------|
-| Free | 1,000 | $0 (5 agents, 1 webhook) |
-| Pro | 50,000 | $20/mo (25 agents, 50 webhooks) |
-| Scale | 500,000 | $99/mo (unlimited agents, 50 webhooks) |
-
-Same API, same MCP tools. Just point `DELEGA_API_URL` at `https://api.delega.dev`.
-
-## Why Delega
-
-Most task APIs (Todoist, Linear, Asana) were built for humans. Delega was built for agents from day one:
-
-- **Agent identity** is a first-class concept, not a bolt-on
-- **Delegation chains** let agents hand off work to other agents with full traceability
-- **Per-task pricing** instead of per-seat (agents aren't employees)
-- **Self-hostable** with zero external dependencies (SQLite, no Redis, no queue)
-- **MCP + REST** so it works with any agent framework
-
-## Tech Stack
-
-- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) (Python)
-- **Database**: [SQLite](https://sqlite.org/) via SQLAlchemy (Postgres supported)
-- **CLI**: [delega-cli](https://github.com/delega-dev/delega-cli) (TypeScript)
-- **MCP**: [delega-mcp](https://github.com/delega-dev/delega-mcp) (TypeScript)
-- **Dedup**: scikit-learn TF-IDF (local, zero API cost)
-
-## Contributing
-
-PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+| Package | What | Install |
+|---------|------|---------|
+| [delega-cli](https://github.com/delega-dev/delega-cli) | Terminal client | `npm i -g @delega-dev/cli` |
+| [delega-mcp](https://github.com/delega-dev/delega-mcp) | MCP server (11 tools) | `npx @delega-dev/mcp` |
+| [delega-python](https://github.com/delega-dev/delega-python) | Python SDK | `pip install delega` |
+| [paperclip-delega](https://github.com/delega-dev/paperclip-delega) | Paperclip AI plugin | `npm i paperclip-delega` |
 
 ## Name
 
 From Latin *delegare*: to entrust, to send as a representative. Task infrastructure should delegate, not just track.
+
+## Contributing
+
+PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
