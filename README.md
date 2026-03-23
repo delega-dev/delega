@@ -42,10 +42,64 @@ npx @delega-dev/cli init
 
 That's it. Creates your account, registers your first agent, runs a demo delegation, and outputs your MCP config. Works with Claude Code, Cursor, Windsurf, VS Code, Codex, and OpenClaw.
 
-**Already have an account?** Just add the MCP server:
-```bash
-npx @delega-dev/mcp
+**Already have an account?** Add the MCP server to your client config:
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+```json
+{
+  "mcpServers": {
+    "delega": {
+      "command": "npx",
+      "args": ["-y", "@delega-dev/mcp"],
+      "env": {
+        "DELEGA_AGENT_KEY": "dlg_your_key_here"
+      }
+    }
+  }
+}
 ```
+</details>
+
+<details>
+<summary><strong>Cursor / Windsurf</strong></summary>
+
+```json
+{
+  "mcpServers": {
+    "delega": {
+      "command": "npx",
+      "args": ["-y", "@delega-dev/mcp"],
+      "env": {
+        "DELEGA_AGENT_KEY": "dlg_your_key_here"
+      }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><strong>VS Code / Copilot</strong></summary>
+
+```json
+{
+  "servers": {
+    "delega": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@delega-dev/mcp"],
+      "env": {
+        "DELEGA_AGENT_KEY": "dlg_your_key_here"
+      }
+    }
+  }
+}
+```
+</details>
+
+Or just run `npx @delega-dev/mcp` and it works.
 
 **Want to self-host?** Free forever, MIT, zero external dependencies:
 ```bash
@@ -161,14 +215,37 @@ Full API at `http://localhost:18890/docs` (interactive OpenAPI).
 | `PATCH` | `/api/tasks/{id}/context` | Merge context blob |
 | `GET` | `/api/tasks/{id}/context` | Get task context |
 
-### Projects, Comments, Webhooks
+### Projects
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET/POST` | `/api/projects` | List / create projects |
-| `GET/POST` | `/api/tasks/{id}/subtasks` | List / add subtasks |
-| `GET/POST` | `/api/tasks/{id}/comments` | List / add comments |
-| `GET/POST` | `/api/webhooks` | List / register webhooks |
+| `GET` | `/api/projects` | List projects |
+| `POST` | `/api/projects` | Create a project |
+| `GET` | `/api/projects/{id}` | Get project details |
+| `PUT` | `/api/projects/{id}` | Update a project |
+| `DELETE` | `/api/projects/{id}` | Delete a project |
+
+### Comments & Subtasks
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/tasks/{id}/subtasks` | List subtasks |
+| `POST` | `/api/tasks/{id}/subtasks` | Add a subtask |
+| `GET` | `/api/tasks/{id}/comments` | List comments |
+| `POST` | `/api/tasks/{id}/comments` | Add a comment |
+
+### Webhooks
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/webhooks` | List webhooks |
+| `POST` | `/api/webhooks` | Register a webhook |
+| `PUT` | `/api/webhooks/{id}` | Update a webhook |
+| `DELETE` | `/api/webhooks/{id}` | Delete a webhook |
+| `GET` | `/api/webhooks/{id}/deliveries` | Delivery history |
+
+### Other
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | `GET` | `/api/stats` | Dashboard stats |
+| `GET` | `/api/usage` | Plan usage and limits |
 
 </details>
 
@@ -222,6 +299,7 @@ docker exec delega curl -s -X POST http://localhost:18890/api/agents \
 | `DELEGA_DB_PATH` | `./data/delega.db` | SQLite database path |
 | `DELEGA_REQUIRE_AUTH` | `true` | Require API keys |
 | `DELEGA_CORS_ORIGINS` | `*` | Allowed origins |
+| `DELEGA_DATABASE_URL` | - | Postgres connection string (overrides SQLite) |
 | `DELEGA_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow localhost webhook URLs |
 
 </details>
