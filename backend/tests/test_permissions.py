@@ -452,3 +452,86 @@ class TestPermissionHelper:
         db.refresh(agent)
         assert has_permission(agent, "tasks.read_all") is False
         db.close()
+
+
+# ---------- Test: Task completion status normalization ----------
+
+class TestTaskCompletionStatus:
+    """Completion endpoints should keep boolean/timestamp/attribution and status in sync."""
+
+    def test_put_complete_sets_status_completed(self, fresh_db, client):
+        agent_id, agent_key = make_agent(fresh_db, "worker")
+
+        created = client.post("/api/tasks", json={"content": "PUT complete me"}, headers=auth(agent_key))
+        assert created.status_code == 200
+        task_id = created.json()["id"]
+
+        completed = client.put(f"/api/tasks/{task_id}", json={"completed": True}, headers=auth(agent_key))
+        assert completed.status_code == 200
+        body = completed.json()
+        assert body["completed"] is True
+        assert body["status"] == "completed"
+        assert body["completed_at"] is not None
+
+        Session = sessionmaker(bind=fresh_db)
+        db = Session()
+        task = db.get(models.Task, task_id)
+        assert task.status == "completed"
+        assert task.completed_by_agent_id == agent_id
+        db.close()
+
+    def test_put_uncomplete_resets_status_open_and_clears_attribution(self, fresh_db, client):
+        agent_id, agent_key = make_agent(fresh_db, "worker")
+
+        created = client.post("/api/tasks", json={"content": "PUT reopen me"}, headers=auth(agent_key))
+        assert created.status_code == 200
+        task_id = created.json()["id"]
+
+        assert client.put(f"/api/tasks/{task_id}", json={"completed": True}, headers=auth(agent_key)).status_code == 200
+        reopened = client.put(f"/api/tasks/{task_id}", json={"completed": False}, headers=auth(agent_key))
+        assert reopened.status_code == 200
+        body = reopened.json()
+        assert body["completed"] is False
+        assert body["status"] == "open"
+        assert body["completed_at"] is None
+
+        Session = sessionmaker(bind=fresh_db)
+        db = Session()
+        task = db.get(models.Task, task_id)
+        assert task.status == "open"
+        assert task.completed_by_agent_id is None
+        db.close()
+
+    def test_post_complete_and_uncomplete_keep_status_in_sync(self, fresh_db, client):
+        agent_id, agent_key = make_agent(fresh_db, "worker")
+
+        created = client.post("/api/tasks", json={"content": "POST complete me"}, headers=auth(agent_key))
+        assert created.status_code == 200
+        task_id = created.json()["id"]
+
+        completed = client.post(f"/api/tasks/{task_id}/complete", headers=auth(agent_key))
+        assert completed.status_code == 200
+        completed_body = completed.json()
+        assert completed_body["completed"] is True
+        assert completed_body["status"] == "completed"
+        assert completed_body["completed_at"] is not None
+
+        Session = sessionmaker(bind=fresh_db)
+        db = Session()
+        task = db.get(models.Task, task_id)
+        assert task.status == "completed"
+        assert task.completed_by_agent_id == agent_id
+        db.close()
+
+        reopened = client.post(f"/api/tasks/{task_id}/uncomplete", headers=auth(agent_key))
+        assert reopened.status_code == 200
+        reopened_body = reopened.json()
+        assert reopened_body["completed"] is False
+        assert reopened_body["status"] == "open"
+        assert reopened_body["completed_at"] is None
+
+        db = Session()
+        task = db.get(models.Task, task_id)
+        assert task.status == "open"
+        assert task.completed_by_agent_id is None
+        db.close()
