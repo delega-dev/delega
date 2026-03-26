@@ -212,6 +212,27 @@ def is_admin_agent(agent: Optional[models.Agent]) -> bool:
     return bool(agent and agent.is_admin)
 
 
+def has_permission(agent: Optional[models.Agent], permission: str) -> bool:
+    """Check if an agent has a specific permission.
+
+    Returns True if:
+    - agent is None and REQUIRE_AUTH is False (open mode)
+    - agent is admin (admin implies all permissions)
+    - agent.permissions list contains the exact permission string
+
+    Known permissions:
+    - tasks.read_all: bypass task scoping, see all tasks and global stats
+    Future:
+    - tasks.assign_any, tasks.complete_any, projects.read, etc.
+    """
+    if agent is None:
+        return not REQUIRE_AUTH  # open mode grants everything
+    if agent.is_admin:
+        return True
+    perms = agent.permissions or []
+    return permission in perms
+
+
 def require_authenticated_agent(agent: Optional[models.Agent], detail: str = "X-Agent-Key required") -> Optional[models.Agent]:
     if not agent:
         if not REQUIRE_AUTH:
@@ -283,8 +304,10 @@ def allow_initial_agent_bootstrap(request: Request) -> bool:
 
 
 def apply_task_scope(query, agent: Optional[models.Agent]):
-    if agent is None or is_admin_agent(agent):
-        return query
+    if has_permission(agent, "tasks.read_all"):
+        return query  # admin, open mode, or explicit tasks.read_all
+    if agent is None:
+        return query  # unauthenticated open-mode fallback when auth is disabled
     return query.filter(
         or_(
             models.Task.created_by_agent_id == agent.id,
@@ -522,6 +545,7 @@ def register_agent(
 ):
     """Register a new agent. Returns the agent with its API key (shown only once at creation)."""
     existing_agent_count = db.query(models.Agent).count()
+    is_bootstrap_agent = existing_agent_count == 0
     if existing_agent_count > 0:
         require_admin_agent(current_agent, "Only admin agent keys can create agents")
     # Check for duplicate name
@@ -531,10 +555,12 @@ def register_agent(
     
     api_key = generate_agent_api_key()
     key_material = create_agent_key_material(api_key)
+    agent_data = agent.model_dump()
+    requested_admin = agent_data.pop("is_admin", False)
     db_agent = models.Agent(
-        **agent.model_dump(),
+        **agent_data,
         api_key=f"pending_{secrets.token_hex(8)}",
-        is_admin=True,
+        is_admin=True if is_bootstrap_agent else requested_admin,
         **key_material,
     )
     db.add(db_agent)
@@ -576,8 +602,13 @@ def update_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
     
     update_data = update.model_dump(exclude_unset=True)
-    if is_self and not current_agent.is_admin and "name" in update_data:
-        raise HTTPException(status_code=403, detail="Non-admin agents cannot rename their own slug")
+    if is_self and not current_agent.is_admin:
+        protected_fields = {"name", "permissions", "is_admin", "active"} & set(update_data)
+        if protected_fields:
+            raise HTTPException(
+                status_code=403,
+                detail="Non-admin agents cannot change their own slug, roles, or activation state",
+            )
     if "name" in update_data:
         existing = db.query(models.Agent).filter(
             models.Agent.name == update_data["name"],
@@ -968,7 +999,7 @@ def list_tasks(
     query = apply_task_scope(db.query(models.Task), agent)
     
     if project_id is not None:
-        if agent is not None and not is_admin_agent(agent):
+        if agent is not None and not has_permission(agent, "tasks.read_all"):
             raise HTTPException(status_code=403, detail="Non-admin agents cannot filter by project")
         query = query.filter(models.Task.project_id == project_id)
     
