@@ -58,7 +58,7 @@ class AgentBase(BaseModel):
 
 
 class AgentCreate(AgentBase):
-    pass  # api_key is auto-generated
+    is_admin: bool = False  # Ignored for first bootstrap agent, admin-controlled afterward
 
 
 class AgentUpdate(BaseModel):
@@ -66,6 +66,7 @@ class AgentUpdate(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
     permissions: Optional[list[str]] = None
+    is_admin: Optional[bool] = None
     active: Optional[bool] = None
 
 
@@ -86,7 +87,9 @@ class AgentPublic(BaseModel):
     id: int
     name: str
     display_name: Optional[str] = None
+    permissions: Optional[list[str]] = None
     is_admin: bool = False
+    active: bool = True
 
     class Config:
         from_attributes = True

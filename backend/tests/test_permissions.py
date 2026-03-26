@@ -75,7 +75,7 @@ def fresh_db(tmp_path):
 @pytest.fixture()
 def client():
     """Test client created after fresh_db patches are in place."""
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 def make_agent(engine, name: str, *, is_admin: bool = False, permissions: list = None):
@@ -260,6 +260,35 @@ class TestTasksReadAll:
                             json={"url": "http://evil.com", "events": ["task.created"]},
                             headers=auth(reader_key)).status_code == 403
 
+    def test_non_admin_cannot_self_grant_read_all(self, fresh_db, client):
+        admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
+        user_id, user_key = make_agent(fresh_db, "user")
+
+        client.post("/api/tasks", json={"content": "Admin task"}, headers=auth(admin_key))
+
+        before = client.get("/api/tasks", headers=auth(user_key)).json()
+        assert len(before) == 0
+
+        r = client.put(
+            f"/api/agents/{user_id}",
+            json={"permissions": ["tasks.read_all"]},
+            headers=auth(user_key),
+        )
+        assert r.status_code == 403
+
+        after = client.get("/api/tasks", headers=auth(user_key)).json()
+        assert len(after) == 0
+
+    def test_non_admin_cannot_self_toggle_active(self, fresh_db, client):
+        user_id, user_key = make_agent(fresh_db, "user")
+
+        r = client.put(
+            f"/api/agents/{user_id}",
+            json={"active": False},
+            headers=auth(user_key),
+        )
+        assert r.status_code == 403
+
     def test_read_all_can_read_task_context(self, fresh_db, client):
         admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
         reader_id, reader_key = make_agent(fresh_db, "reader", permissions=["tasks.read_all"])
@@ -288,6 +317,13 @@ class TestTasksReadAll:
 class TestAdminStillWorks:
     """Admin powers unchanged by the permission system."""
 
+    def test_first_bootstrap_agent_is_admin(self, fresh_db, client):
+        r = client.post("/api/agents", json={"name": "bootstrap"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["is_admin"] is True
+        assert body["permissions"] == []
+
     def test_admin_sees_all_tasks(self, fresh_db, client):
         admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
         other_id, other_key = make_agent(fresh_db, "other")
@@ -308,9 +344,27 @@ class TestAdminStillWorks:
     def test_admin_can_manage_webhooks(self, fresh_db, client):
         admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
         r = client.post("/api/webhooks",
-                         json={"url": "http://example.com/hook", "events": ["task.created"]},
+                         json={"url": "http://1.1.1.1/hook", "events": ["task.created"]},
                          headers=auth(admin_key))
         assert r.status_code == 200
+
+    def test_admin_can_create_non_admin_reader(self, fresh_db, client):
+        admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
+
+        r = client.post(
+            "/api/agents",
+            json={"name": "reader", "permissions": ["tasks.read_all"]},
+            headers=auth(admin_key),
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["is_admin"] is False
+        assert body["permissions"] == ["tasks.read_all"]
+
+        r2 = client.get(f"/api/agents/{body['id']}", headers=auth(admin_key))
+        assert r2.status_code == 200
+        assert r2.json()["is_admin"] is False
+        assert r2.json()["permissions"] == ["tasks.read_all"]
 
 
 # ---------- Test: Backward compatibility ----------

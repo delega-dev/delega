@@ -556,6 +556,7 @@ def register_agent(
 ):
     """Register a new agent. Returns the agent with its API key (shown only once at creation)."""
     existing_agent_count = db.query(models.Agent).count()
+    is_bootstrap_agent = existing_agent_count == 0
     if existing_agent_count > 0:
         require_admin_agent(current_agent, "Only admin agent keys can create agents")
     # Check for duplicate name
@@ -565,10 +566,12 @@ def register_agent(
     
     api_key = generate_agent_api_key()
     key_material = create_agent_key_material(api_key)
+    agent_data = agent.model_dump()
+    requested_admin = agent_data.pop("is_admin", False)
     db_agent = models.Agent(
-        **agent.model_dump(),
+        **agent_data,
         api_key=f"pending_{secrets.token_hex(8)}",
-        is_admin=True,
+        is_admin=True if is_bootstrap_agent else requested_admin,
         **key_material,
     )
     db.add(db_agent)
@@ -610,8 +613,13 @@ def update_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
     
     update_data = update.model_dump(exclude_unset=True)
-    if is_self and not current_agent.is_admin and "name" in update_data:
-        raise HTTPException(status_code=403, detail="Non-admin agents cannot rename their own slug")
+    if is_self and not current_agent.is_admin:
+        protected_fields = {"name", "permissions", "is_admin", "active"} & set(update_data)
+        if protected_fields:
+            raise HTTPException(
+                status_code=403,
+                detail="Non-admin agents cannot change their own slug, roles, or activation state",
+            )
     if "name" in update_data:
         existing = db.query(models.Agent).filter(
             models.Agent.name == update_data["name"],
