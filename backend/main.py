@@ -1111,9 +1111,21 @@ def update_task(
     if "reminder_time" in update_data:
         update_data["reminder_sent"] = False
 
-    # Auto-set completed_at when completing via PUT (matches /complete endpoint behavior)
-    if update_data.get("completed") and not db_task.completed:
+    # Track completion state change BEFORE applying updates
+    was_completed = db_task.completed
+    is_completing = update_data.get("completed") and not was_completed
+    is_uncompleting = "completed" in update_data and not update_data["completed"] and was_completed
+
+    # Auto-set completion fields when completing via PUT (consistent with /complete endpoint)
+    if is_completing:
         update_data["completed_at"] = datetime.now(timezone.utc)
+        if agent:
+            update_data["completed_by_agent_id"] = agent.id
+
+    # Clear completion attribution when un-completing via PUT
+    if is_uncompleting:
+        update_data["completed_at"] = None
+        update_data["completed_by_agent_id"] = None
 
     for field, value in update_data.items():
         setattr(db_task, field, value)
@@ -1121,9 +1133,12 @@ def update_task(
     db.commit()
     db.refresh(db_task)
     
-    # Fire webhooks
+    # Fire webhooks — use task.completed event when completing via PUT for consistency
     agent_id = agent.id if agent else None
-    fire_webhooks("task.updated", task_to_dict(db_task), agent_to_dict(agent), agent_id)
+    if is_completing:
+        fire_webhooks("task.completed", task_to_dict(db_task), agent_to_dict(agent), agent_id)
+    else:
+        fire_webhooks("task.updated", task_to_dict(db_task), agent_to_dict(agent), agent_id)
     
     # Fire assignment webhook if assigned_to changed
     if "assigned_to_agent_id" in update_data and update_data["assigned_to_agent_id"] != old_assigned:
