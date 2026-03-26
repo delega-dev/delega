@@ -212,12 +212,44 @@ def is_admin_agent(agent: Optional[models.Agent]) -> bool:
     return bool(agent and agent.is_admin)
 
 
+def has_permission(agent: Optional[models.Agent], permission: str) -> bool:
+    """Check if an agent has a specific permission.
+
+    Returns True if:
+    - agent is None and REQUIRE_AUTH is False (open mode)
+    - agent is admin (admin implies all permissions)
+    - agent.permissions list contains the exact permission string
+
+    Known permissions:
+    - tasks.read_all: bypass task scoping, see all tasks and global stats
+    Future:
+    - tasks.assign_any, tasks.complete_any, projects.read, etc.
+    """
+    if agent is None:
+        return not REQUIRE_AUTH  # open mode grants everything
+    if agent.is_admin:
+        return True
+    perms = agent.permissions or []
+    return permission in perms
+
+
 def require_authenticated_agent(agent: Optional[models.Agent], detail: str = "X-Agent-Key required") -> Optional[models.Agent]:
     if not agent:
         if not REQUIRE_AUTH:
             return None  # Allow unauthenticated access when auth not required
         raise HTTPException(status_code=401, detail=detail)
     return agent
+
+
+def require_permission(agent: Optional[models.Agent], permission: str, detail: Optional[str] = None) -> Optional[models.Agent]:
+    """Require that the agent has a specific permission. Raises 403 if not."""
+    if not agent and not REQUIRE_AUTH:
+        return None  # open mode
+    current = require_authenticated_agent(agent)
+    if current and not has_permission(current, permission):
+        msg = detail or f"This action requires the '{permission}' permission"
+        raise HTTPException(status_code=403, detail=msg)
+    return current
 
 
 def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agent key required") -> Optional[models.Agent]:
@@ -283,8 +315,10 @@ def allow_initial_agent_bootstrap(request: Request) -> bool:
 
 
 def apply_task_scope(query, agent: Optional[models.Agent]):
-    if agent is None or is_admin_agent(agent):
-        return query
+    if has_permission(agent, "tasks.read_all"):
+        return query  # admin, open mode, or explicit tasks.read_all
+    if agent is None:
+        return query  # shouldn't reach here, but safe fallback
     return query.filter(
         or_(
             models.Task.created_by_agent_id == agent.id,
@@ -968,7 +1002,7 @@ def list_tasks(
     query = apply_task_scope(db.query(models.Task), agent)
     
     if project_id is not None:
-        if agent is not None and not is_admin_agent(agent):
+        if agent is not None and not has_permission(agent, "tasks.read_all"):
             raise HTTPException(status_code=403, detail="Non-admin agents cannot filter by project")
         query = query.filter(models.Task.project_id == project_id)
     
