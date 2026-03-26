@@ -426,7 +426,7 @@ class TestPermissionHelper:
         admin_id, _ = make_agent(fresh_db, "admin", is_admin=True)
         Session = sessionmaker(bind=fresh_db)
         db = Session()
-        agent = db.query(models.Agent).get(admin_id)
+        agent = db.get(models.Agent, admin_id)
         assert has_permission(agent, "tasks.read_all") is True
         assert has_permission(agent, "anything.at_all") is True
         db.close()
@@ -436,7 +436,7 @@ class TestPermissionHelper:
         reader_id, _ = make_agent(fresh_db, "reader", permissions=["tasks.read_all"])
         Session = sessionmaker(bind=fresh_db)
         db = Session()
-        agent = db.query(models.Agent).get(reader_id)
+        agent = db.get(models.Agent, reader_id)
         assert has_permission(agent, "tasks.read_all") is True
         assert has_permission(agent, "tasks.assign_any") is False
         db.close()
@@ -446,7 +446,7 @@ class TestPermissionHelper:
         agent_id, _ = make_agent(fresh_db, "legacy")
         Session = sessionmaker(bind=fresh_db)
         db = Session()
-        agent = db.query(models.Agent).get(agent_id)
+        agent = db.get(models.Agent, agent_id)
         agent.permissions = None
         db.commit()
         db.refresh(agent)

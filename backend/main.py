@@ -241,17 +241,6 @@ def require_authenticated_agent(agent: Optional[models.Agent], detail: str = "X-
     return agent
 
 
-def require_permission(agent: Optional[models.Agent], permission: str, detail: Optional[str] = None) -> Optional[models.Agent]:
-    """Require that the agent has a specific permission. Raises 403 if not."""
-    if not agent and not REQUIRE_AUTH:
-        return None  # open mode
-    current = require_authenticated_agent(agent)
-    if current and not has_permission(current, permission):
-        msg = detail or f"This action requires the '{permission}' permission"
-        raise HTTPException(status_code=403, detail=msg)
-    return current
-
-
 def require_admin_agent(agent: Optional[models.Agent], detail: str = "Admin agent key required") -> Optional[models.Agent]:
     if not agent and not REQUIRE_AUTH:
         return None  # Allow unauthenticated access when auth not required
@@ -318,7 +307,7 @@ def apply_task_scope(query, agent: Optional[models.Agent]):
     if has_permission(agent, "tasks.read_all"):
         return query  # admin, open mode, or explicit tasks.read_all
     if agent is None:
-        return query  # shouldn't reach here, but safe fallback
+        return query  # unauthenticated open-mode fallback when auth is disabled
     return query.filter(
         or_(
             models.Task.created_by_agent_id == agent.id,
