@@ -1150,6 +1150,7 @@ def update_task(
     # Auto-set completion fields when completing via PUT (consistent with /complete endpoint)
     if is_completing:
         update_data["completed_at"] = datetime.now(timezone.utc)
+        update_data["status"] = "completed"
         if agent:
             update_data["completed_by_agent_id"] = agent.id
 
@@ -1157,6 +1158,7 @@ def update_task(
     if is_uncompleting:
         update_data["completed_at"] = None
         update_data["completed_by_agent_id"] = None
+        update_data["status"] = "open"
 
     for field, value in update_data.items():
         setattr(db_task, field, value)
@@ -1209,6 +1211,7 @@ def complete_task(
     
     db_task.completed = True
     db_task.completed_at = datetime.now(timezone.utc)
+    db_task.status = "completed"
     if agent:
         db_task.completed_by_agent_id = agent.id
     
@@ -1265,6 +1268,8 @@ def uncomplete_task(
     
     db_task.completed = False
     db_task.completed_at = None
+    db_task.completed_by_agent_id = None
+    db_task.status = "open"
     db.commit()
     db.refresh(db_task)
     return db_task
