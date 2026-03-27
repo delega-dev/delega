@@ -20,6 +20,16 @@ def _normalize_recurring_type(v: Optional[str]) -> Optional[str]:
     return _RECURRING_TYPE_ALIASES.get(v, v)
 
 
+def _reject_blank_text(v: Optional[str], field_name: str) -> Optional[str]:
+    if v is None:
+        return v
+    if not isinstance(v, str):
+        return v
+    if not v.strip():
+        raise ValueError(f"{field_name} must not be blank")
+    return v
+
+
 # ============ Project Schemas ============
 
 class ProjectBase(BaseModel):
@@ -112,6 +122,11 @@ class TaskBase(BaseModel):
     reminder_time: Optional[datetime] = None
     context: Optional[dict] = None  # Persistent context blob for agent state
 
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v):
+        return _reject_blank_text(v, "content")
+
 
 class TaskCreate(TaskBase):
     assigned_to_agent_id: Optional[int] = None  # Assign to agent at creation
@@ -140,6 +155,11 @@ class TaskUpdate(BaseModel):
     reminder_time: Optional[datetime] = None
     assigned_to_agent_id: Optional[int] = None  # Assign/reassign to agent
     context: Optional[dict] = None  # Update context blob
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v):
+        return _reject_blank_text(v, "content")
 
     @field_validator("recurring_type", mode="before")
     @classmethod

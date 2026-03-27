@@ -535,3 +535,29 @@ class TestTaskCompletionStatus:
         assert task.status == "open"
         assert task.completed_by_agent_id is None
         db.close()
+
+
+class TestTaskContentValidation:
+    """Task content must contain non-whitespace text."""
+
+    @pytest.mark.parametrize("content", ["", "   ", "\n\t"])
+    def test_create_task_rejects_blank_content(self, fresh_db, client, content):
+        _, agent_key = make_agent(fresh_db, "worker")
+
+        response = client.post("/api/tasks", json={"content": content}, headers=auth(agent_key))
+
+        assert response.status_code == 422
+        assert "content" in response.text.lower()
+
+    @pytest.mark.parametrize("content", ["", "   ", "\n\t"])
+    def test_update_task_rejects_blank_content(self, fresh_db, client, content):
+        _, agent_key = make_agent(fresh_db, "worker")
+
+        created = client.post("/api/tasks", json={"content": "valid"}, headers=auth(agent_key))
+        assert created.status_code == 200
+        task_id = created.json()["id"]
+
+        response = client.put(f"/api/tasks/{task_id}", json={"content": content}, headers=auth(agent_key))
+
+        assert response.status_code == 422
+        assert "content" in response.text.lower()
