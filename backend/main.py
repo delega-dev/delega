@@ -534,19 +534,18 @@ def list_agents(
 ):
     """List all registered agents (without API keys)."""
     require_admin_agent(agent, "Only admin agent keys can list agents")
-    open_count = (
-        sa_func.count(models.Task.id)
+    # Single grouped query for open task counts per agent
+    open_counts = dict(
+        db.query(models.Task.assigned_to_agent_id, sa_func.count(models.Task.id))
+        .filter(models.Task.completed == False)
+        .group_by(models.Task.assigned_to_agent_id)
+        .all()
     )
     agents = db.query(models.Agent).order_by(models.Agent.name).all()
-    # Attach open_task_count to each agent
     result = []
     for a in agents:
-        count = db.query(sa_func.count(models.Task.id)).filter(
-            models.Task.assigned_to_agent_id == a.id,
-            models.Task.completed == False,
-        ).scalar() or 0
         agent_dict = schemas.AgentPublic.model_validate(a).model_dump()
-        agent_dict["open_task_count"] = count
+        agent_dict["open_task_count"] = open_counts.get(a.id, 0)
         result.append(agent_dict)
     return result
 

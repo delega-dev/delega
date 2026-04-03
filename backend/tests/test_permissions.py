@@ -561,3 +561,73 @@ class TestTaskContentValidation:
 
         assert response.status_code == 422
         assert "content" in response.text.lower()
+
+
+# ---------- Test: open_task_count on agent endpoints ----------
+
+class TestOpenTaskCount:
+    """open_task_count is returned correctly on list and detail endpoints."""
+
+    def test_list_agents_open_task_counts(self, fresh_db, client):
+        """Agents with open, completed, and zero tasks get correct counts."""
+        admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
+        worker_id, worker_key = make_agent(fresh_db, "worker")
+        idle_id, idle_key = make_agent(fresh_db, "idle")
+
+        # Create 2 open tasks assigned to worker
+        for i in range(2):
+            r = client.post(
+                "/api/tasks",
+                json={"content": f"open task {i}", "assigned_to_agent_id": worker_id},
+                headers=auth(admin_key),
+            )
+            assert r.status_code == 200
+
+        # Create 1 completed task assigned to worker
+        r = client.post(
+            "/api/tasks",
+            json={"content": "done task", "assigned_to_agent_id": worker_id},
+            headers=auth(admin_key),
+        )
+        assert r.status_code == 200
+        done_id = r.json()["id"]
+        r = client.post(f"/api/tasks/{done_id}/complete", headers=auth(admin_key))
+        assert r.status_code == 200
+
+        agents = client.get("/api/agents", headers=auth(admin_key)).json()
+        counts = {a["name"]: a["open_task_count"] for a in agents}
+        assert counts["worker"] == 2
+        assert counts["idle"] == 0
+        assert counts["admin"] == 0
+
+    def test_get_agent_open_task_count(self, fresh_db, client):
+        """Detail endpoint returns correct open_task_count."""
+        admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
+        worker_id, worker_key = make_agent(fresh_db, "worker")
+
+        r = client.post(
+            "/api/tasks",
+            json={"content": "assigned", "assigned_to_agent_id": worker_id},
+            headers=auth(admin_key),
+        )
+        assert r.status_code == 200
+
+        detail = client.get(f"/api/agents/{worker_id}", headers=auth(admin_key)).json()
+        assert detail["open_task_count"] == 1
+
+    def test_get_agent_only_completed_tasks(self, fresh_db, client):
+        """Agent with only completed tasks has open_task_count == 0."""
+        admin_id, admin_key = make_agent(fresh_db, "admin", is_admin=True)
+        worker_id, worker_key = make_agent(fresh_db, "worker")
+
+        r = client.post(
+            "/api/tasks",
+            json={"content": "will complete", "assigned_to_agent_id": worker_id},
+            headers=auth(admin_key),
+        )
+        assert r.status_code == 200
+        task_id = r.json()["id"]
+        client.post(f"/api/tasks/{task_id}/complete", headers=auth(admin_key))
+
+        detail = client.get(f"/api/agents/{worker_id}", headers=auth(admin_key)).json()
+        assert detail["open_task_count"] == 0
