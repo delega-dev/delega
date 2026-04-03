@@ -7,7 +7,7 @@ from starlette.responses import JSONResponse
 from collections import defaultdict
 import time as _time
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func as sa_func
 from datetime import date, datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from typing import Optional
@@ -534,7 +534,21 @@ def list_agents(
 ):
     """List all registered agents (without API keys)."""
     require_admin_agent(agent, "Only admin agent keys can list agents")
-    return db.query(models.Agent).order_by(models.Agent.name).all()
+    open_count = (
+        sa_func.count(models.Task.id)
+    )
+    agents = db.query(models.Agent).order_by(models.Agent.name).all()
+    # Attach open_task_count to each agent
+    result = []
+    for a in agents:
+        count = db.query(sa_func.count(models.Task.id)).filter(
+            models.Task.assigned_to_agent_id == a.id,
+            models.Task.completed == False,
+        ).scalar() or 0
+        agent_dict = schemas.AgentPublic.model_validate(a).model_dump()
+        agent_dict["open_task_count"] = count
+        result.append(agent_dict)
+    return result
 
 
 @app.post("/api/agents", response_model=schemas.Agent)
@@ -582,7 +596,13 @@ def get_agent(
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
+    count = db.query(sa_func.count(models.Task.id)).filter(
+        models.Task.assigned_to_agent_id == agent.id,
+        models.Task.completed == False,
+    ).scalar() or 0
+    result = schemas.AgentPublic.model_validate(agent).model_dump()
+    result["open_task_count"] = count
+    return result
 
 
 @app.put("/api/agents/{agent_id}", response_model=schemas.AgentPublic)

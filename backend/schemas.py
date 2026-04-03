@@ -100,6 +100,7 @@ class AgentPublic(BaseModel):
     permissions: Optional[list[str]] = None
     is_admin: bool = False
     active: bool = True
+    open_task_count: Optional[int] = None
 
     class Config:
         from_attributes = True
