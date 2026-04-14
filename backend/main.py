@@ -341,6 +341,52 @@ def get_task_for_agent(
     return task
 
 
+async def _reject_chain_fields(request: Request, *, mode: str) -> None:
+    # Chain membership (parent_task_id + root_task_id + delegation_depth) is
+    # set atomically by the server — via POST /tasks/:id/delegate for chain
+    # tasks, or implicitly on bare POST /tasks where root_task_id = self.id.
+    # Clients that set these fields directly can create orphan rows
+    # (delegation_depth > 0 with NULL parent/root), which this guard prevents.
+    # Parity with delega-api's coherence fix.
+    try:
+        raw = await request.json()
+    except Exception:
+        return  # Let FastAPI's own body parsing raise the user-facing error.
+    if not isinstance(raw, dict):
+        return
+    if "root_task_id" in raw:
+        raise HTTPException(
+            status_code=400,
+            detail="root_task_id cannot be set via this endpoint. Use POST /tasks/:id/delegate to create a chain task with parent_task_id and root_task_id set atomically.",
+        )
+    dd = raw.get("delegation_depth")
+    if mode == "create":
+        if dd is not None and dd != 0:
+            raise HTTPException(
+                status_code=400,
+                detail="delegation_depth cannot be set via POST /tasks. Use POST /tasks/:id/delegate to create a chain task with parent_task_id and root_task_id set atomically.",
+            )
+    elif mode == "update":
+        if "delegation_depth" in raw:
+            raise HTTPException(
+                status_code=400,
+                detail="delegation_depth is immutable once set. Chain membership is only established via POST /tasks/:id/delegate.",
+            )
+        if "parent_task_id" in raw:
+            raise HTTPException(
+                status_code=400,
+                detail="parent_task_id is immutable once set. Chain membership cannot be re-parented via PUT /tasks/:id.",
+            )
+
+
+async def reject_chain_fields_on_create(request: Request) -> None:
+    await _reject_chain_fields(request, mode="create")
+
+
+async def reject_chain_fields_on_update(request: Request) -> None:
+    await _reject_chain_fields(request, mode="update")
+
+
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
@@ -1070,6 +1116,7 @@ def create_task(
     request: Request,
     db: Session = Depends(get_db),
     agent: Optional[models.Agent] = Depends(get_current_agent),
+    _coherence: None = Depends(reject_chain_fields_on_create),
 ):
     # Optional dedup check via header
     dedup_header = request.headers.get("X-Dedup-Check", "").lower()
@@ -1144,6 +1191,7 @@ def update_task(
     task: schemas.TaskUpdate,
     db: Session = Depends(get_db),
     agent: Optional[models.Agent] = Depends(get_current_agent),
+    _coherence: None = Depends(reject_chain_fields_on_update),
 ):
     db_task = get_task_for_agent(db, task_id, agent, require_mutation=True)
 
