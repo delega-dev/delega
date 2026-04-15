@@ -49,5 +49,8 @@ data/
 # Node (if applicable)
 node_modules/
 
+# Local frontend symlink (user's dev convenience; not part of the repo)
+frontend
+
 # Internal release check (contains infrastructure details)
 scripts/release-check.sh
