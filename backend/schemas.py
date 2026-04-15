@@ -100,9 +100,25 @@ class AgentPublic(BaseModel):
     permissions: Optional[list[str]] = None
     is_admin: bool = False
     active: bool = True
+    open_task_count: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class AgentWorkflowCounts(BaseModel):
+    ready_task_count: int = 0
+    in_progress_task_count: int = 0
+    stale_task_count: int = 0
+    validating_task_count: int = 0
+    needs_review_task_count: int = 0
+
+
+class AgentWorkflowSummary(BaseModel):
+    agent_id: int
+    agent_name: str
+    display_name: Optional[str] = None
+    counts: AgentWorkflowCounts
 
 
 # ============ Task Schemas ============

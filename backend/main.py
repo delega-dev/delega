@@ -3,11 +3,13 @@ Task infrastructure for AI agents.
 """
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.responses import JSONResponse
 from collections import defaultdict
 import time as _time
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func as sa_func
 from datetime import date, datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from typing import Optional
@@ -24,6 +26,11 @@ import socket
 from urllib.parse import urlparse
 
 logger = logging.getLogger("delega")
+PICKUP_STATE_PATH = "/Users/openclaw/.openclaw-automation/state/delega-pickups.json"
+WORKFLOW_STATE_LABELS = {"@active", "@waiting", "@scheduled", "active", "waiting", "scheduled"}
+ACTIVE_STATE_LABELS = {"@active", "active"}
+NON_WORKING_RECEIPT_STATUSES = {"blocked", "wip_cap", "needs_human"}
+BUSY_ACTIVITY_WINDOW = timedelta(minutes=30)
 
 # ============ Config from env ============
 def env_flag(name: str, default: bool) -> bool:
@@ -36,11 +43,37 @@ def env_flag(name: str, default: bool) -> bool:
 REQUIRE_AUTH = env_flag("DELEGA_REQUIRE_AUTH", True)
 MAX_JSON_BODY_BYTES = int(os.environ.get("DELEGA_MAX_BODY_BYTES", "65536"))
 KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "100000"))
+READ_RATE_LIMIT_PER_MINUTE = int(os.environ.get("DELEGA_READ_RATE_LIMIT_PER_MINUTE", "300"))
+WRITE_RATE_LIMIT_PER_MINUTE = int(os.environ.get("DELEGA_WRITE_RATE_LIMIT_PER_MINUTE", "60"))
+RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("DELEGA_RATE_LIMIT_WINDOW_SECONDS", "60"))
 CORS_ORIGINS = [
     o.strip() for o in
     os.environ.get("DELEGA_CORS_ORIGINS", "http://localhost:18890,http://localhost:5173,http://127.0.0.1:18890").split(",")
     if o.strip()
 ]
+
+
+def trusted_proxy_ips() -> set[str]:
+    raw = os.environ.get("API_TRUSTED_PROXY_IPS", "")
+    return {term.strip() for term in raw.split(",") if term.strip()}
+
+
+def parse_dt(raw) -> Optional[datetime]:
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def normalize_agent_name(value: str) -> str:
+    value = str(value or "").strip().lower()
+    return "marty" if value == "main" else value
+
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -75,7 +108,7 @@ class _RateLimiter:
     def __init__(self):
         self._hits: dict[str, list[float]] = defaultdict(list)
     
-    def check(self, key: str, limit: int, window: int = 60) -> bool:
+    def check(self, key: str, limit: int, window: int = RATE_LIMIT_WINDOW_SECONDS) -> bool:
         """Return True if request is allowed, False if rate-limited."""
         now = _time.monotonic()
         bucket = self._hits[key]
@@ -90,8 +123,8 @@ class _RateLimiter:
 
 _rate_limiter = _RateLimiter()
 
-# Limits: reads 60/min, writes 30/min
-_LIMITS = {"read": 60, "write": 30}
+# Limits: local SPA traffic can easily burst several parallel reads on load.
+_LIMITS = {"read": READ_RATE_LIMIT_PER_MINUTE, "write": WRITE_RATE_LIMIT_PER_MINUTE}
 
 
 def validate_webhook_url(url: str) -> Optional[str]:
@@ -275,6 +308,44 @@ def require_localhost_target(request: Request, detail: str) -> None:
     raise HTTPException(status_code=403, detail=detail)
 
 
+def is_trusted_proxy_request(request: Request) -> bool:
+    client_host = request.client.host if request.client else ""
+    if not client_host:
+        return False
+    return client_host in trusted_proxy_ips()
+
+
+def normalize_proxy_user(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+
+    value = raw_value.strip().lower()
+    if not value:
+        return []
+
+    candidates = [value]
+    if "@" in value:
+        local_part = value.split("@", 1)[0]
+        if local_part and local_part not in candidates:
+            candidates.append(local_part)
+    return candidates
+
+
+def resolve_proxy_agent(db: Session, request: Request) -> Optional[models.Agent]:
+    if not is_trusted_proxy_request(request):
+        return None
+
+    proxy_user = request.headers.get("Remote-User") or request.headers.get("X-Forwarded-User")
+    candidates = normalize_proxy_user(proxy_user)
+    if not candidates:
+        return None
+
+    return db.query(models.Agent).filter(
+        models.Agent.active == True,
+        models.Agent.name.in_(candidates),
+    ).first()
+
+
 def is_initial_agent_bootstrap_request(request: Request) -> bool:
     return request.method.upper() == "POST" and request.url.path == "/api/agents"
 
@@ -361,7 +432,8 @@ async def rate_limit_middleware(request: Request, call_next):
     if not _rate_limiter.check(key, _LIMITS[tier]):
         return JSONResponse(
             status_code=429,
-            content={"detail": f"Rate limit exceeded ({_LIMITS[tier]}/min for {tier} requests)"},
+            content={"detail": f"Rate limit exceeded ({_LIMITS[tier]}/{RATE_LIMIT_WINDOW_SECONDS}s for {tier} requests)"},
+            headers={"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)},
         )
     
     return await call_next(request)
@@ -451,14 +523,29 @@ async def auth_gate_middleware(request: Request, call_next):
     x_agent_key = request.headers.get("X-Agent-Key")
 
     if not x_agent_key:
+        db = SessionLocal()
         if REQUIRE_AUTH and allow_initial_agent_bootstrap(request):
+            db.close()
             return await call_next(request)
-        if REQUIRE_AUTH:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)"},
-            )
-        return await call_next(request)
+        try:
+            agent = resolve_proxy_agent(db, request)
+            if agent:
+                agent.last_seen_at = datetime.now(timezone.utc)
+                db.commit()
+                request.state.current_agent_id = agent.id
+                return await call_next(request)
+            if REQUIRE_AUTH:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)"},
+                )
+            return await call_next(request)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Proxy authentication middleware error: %s", exc)
+            return JSONResponse(status_code=500, content={"detail": "Authentication error"})
+        finally:
+            db.close()
 
     db = SessionLocal()
     try:
@@ -525,6 +612,88 @@ def get_current_agent(
     return agent
 
 
+def load_pickup_receipts() -> dict[str, dict]:
+    try:
+        with open(PICKUP_STATE_PATH) as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    receipts = data.get("receipts")
+    return receipts if isinstance(receipts, dict) else {}
+
+
+def receipt_key_for_agent(agent_name: str, task_id: int) -> str:
+    return f"{normalize_agent_name(agent_name)}:{int(task_id or 0)}"
+
+
+def receipt_status(receipt: dict) -> str:
+    return str(receipt.get("validation_status") or receipt.get("execution_status") or "").strip().lower()
+
+
+def receipt_activity_at(receipt: dict) -> Optional[datetime]:
+    candidates = [
+        parse_dt(receipt.get("last_activity_at")),
+        parse_dt(receipt.get("acked_at")),
+        parse_dt(receipt.get("execution_started_at")),
+        parse_dt(receipt.get("execution_finished_at")),
+        parse_dt(receipt.get("validation_started_at")),
+        parse_dt(receipt.get("validation_finished_at")),
+        parse_dt(receipt.get("last_sent_at")),
+    ]
+    candidates = [dt for dt in candidates if dt is not None]
+    return max(candidates) if candidates else None
+
+
+def has_recent_activity(receipt: dict) -> bool:
+    activity = receipt_activity_at(receipt)
+    if activity is None:
+        return False
+    return datetime.now(timezone.utc) - activity <= BUSY_ACTIVITY_WINDOW
+
+
+def is_ready_task(task) -> bool:
+    labels = {str(label).strip() for label in (task.labels or []) if str(label).strip()}
+    return (not task.completed) and task.assigned_to_agent_id is not None and not (labels & WORKFLOW_STATE_LABELS)
+
+
+def classify_agent_workflow_counts(db: Session) -> dict[int, schemas.AgentWorkflowCounts]:
+    receipts = load_pickup_receipts()
+    counts_by_agent: dict[int, schemas.AgentWorkflowCounts] = {}
+    tasks = db.query(models.Task).filter(
+        models.Task.completed == False,
+        models.Task.assigned_to_agent_id.isnot(None),
+    ).all()
+    agent_name_by_id = {agent.id: normalize_agent_name(agent.name) for agent in db.query(models.Agent).all()}
+    for task in tasks:
+        agent_id = int(task.assigned_to_agent_id or 0)
+        if not agent_id:
+            continue
+        counts = counts_by_agent.setdefault(agent_id, schemas.AgentWorkflowCounts())
+        labels = {str(label).strip() for label in (task.labels or []) if str(label).strip()}
+        receipt = receipts.get(receipt_key_for_agent(agent_name_by_id.get(agent_id, ""), task.id)) or {}
+        workflow_state = str(receipt.get("workflow_state") or "").strip().lower()
+        status = receipt_status(receipt)
+
+        if workflow_state == "needs_human" or status == "needs_human":
+            counts.needs_review_task_count += 1
+            continue
+        if workflow_state == "stale":
+            counts.stale_task_count += 1
+            continue
+        if status in {"validating", "done_fast_path"} or workflow_state == "validating":
+            counts.validating_task_count += 1
+            continue
+        if labels & ACTIVE_STATE_LABELS:
+            if status not in NON_WORKING_RECEIPT_STATUSES and has_recent_activity(receipt):
+                counts.in_progress_task_count += 1
+            else:
+                counts.stale_task_count += 1
+            continue
+        if is_ready_task(task):
+            counts.ready_task_count += 1
+    return counts_by_agent
+
+
 # ============ Agents ============
 
 @app.get("/api/agents", response_model=list[schemas.AgentPublic])
@@ -534,7 +703,40 @@ def list_agents(
 ):
     """List all registered agents (without API keys)."""
     require_admin_agent(agent, "Only admin agent keys can list agents")
-    return db.query(models.Agent).order_by(models.Agent.name).all()
+    agents = db.query(models.Agent).order_by(models.Agent.name).all()
+    result = []
+    for a in agents:
+        count = db.query(sa_func.count(models.Task.id)).filter(
+            models.Task.assigned_to_agent_id == a.id,
+            models.Task.completed == False,
+        ).scalar() or 0
+        agent_dict = schemas.AgentPublic.model_validate(a).model_dump()
+        agent_dict["open_task_count"] = count
+        result.append(agent_dict)
+    return result
+
+
+@app.get("/api/internal/agent-workflow", response_model=list[schemas.AgentWorkflowSummary])
+def get_internal_agent_workflow(
+    db: Session = Depends(get_db),
+    agent: Optional[models.Agent] = Depends(get_current_agent),
+):
+    """Internal-only workflow counters for the local Delega UI."""
+    require_admin_agent(agent, "Only admin agent keys can inspect internal agent workflow")
+    counts_by_agent = classify_agent_workflow_counts(db)
+    agents = db.query(models.Agent).order_by(models.Agent.name).all()
+    result = []
+    for entry in agents:
+        counts = counts_by_agent.get(entry.id, schemas.AgentWorkflowCounts())
+        result.append(
+            schemas.AgentWorkflowSummary(
+                agent_id=entry.id,
+                agent_name=entry.name,
+                display_name=entry.display_name,
+                counts=counts,
+            )
+        )
+    return result
 
 
 @app.post("/api/agents", response_model=schemas.Agent)
@@ -582,7 +784,13 @@ def get_agent(
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
+    count = db.query(sa_func.count(models.Task.id)).filter(
+        models.Task.assigned_to_agent_id == agent.id,
+        models.Task.completed == False,
+    ).scalar() or 0
+    result = schemas.AgentPublic.model_validate(agent).model_dump()
+    result["open_task_count"] = count
+    return result
 
 
 @app.put("/api/agents/{agent_id}", response_model=schemas.AgentPublic)
@@ -1731,6 +1939,28 @@ def start_scheduler():
 @app.on_event("shutdown")
 def stop_scheduler():
     scheduler.shutdown(wait=False)
+
+
+# ============ Serve Frontend ============
+
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+ASSETS_DIR = os.path.join(FRONTEND_DIR, "assets")
+
+if os.path.exists(FRONTEND_DIR):
+    if os.path.exists(ASSETS_DIR):
+        app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+    @app.get("/")
+    def serve_frontend():
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+    @app.get("/manifest.json")
+    def serve_manifest():
+        return FileResponse(os.path.join(FRONTEND_DIR, "manifest.json"))
+
+    @app.get("/sw.js")
+    def serve_sw():
+        return FileResponse(os.path.join(FRONTEND_DIR, "sw.js"))
 
 
 if __name__ == "__main__":
