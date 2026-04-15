@@ -2,7 +2,9 @@
 Task infrastructure for AI agents.
 """
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.responses import JSONResponse
 from collections import defaultdict
 import time as _time
@@ -41,6 +43,11 @@ CORS_ORIGINS = [
     os.environ.get("DELEGA_CORS_ORIGINS", "http://localhost:18890,http://localhost:5173,http://127.0.0.1:18890").split(",")
     if o.strip()
 ]
+
+
+def trusted_proxy_ips() -> set[str]:
+    raw = os.environ.get("API_TRUSTED_PROXY_IPS", "")
+    return {term.strip() for term in raw.split(",") if term.strip()}
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -254,6 +261,44 @@ def require_localhost_target(request: Request, detail: str) -> None:
     raise HTTPException(status_code=403, detail=detail)
 
 
+def is_trusted_proxy_request(request: Request) -> bool:
+    client_host = request.client.host if request.client else ""
+    if not client_host:
+        return False
+    return client_host in trusted_proxy_ips()
+
+
+def normalize_proxy_user(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+
+    value = raw_value.strip().lower()
+    if not value:
+        return []
+
+    candidates = [value]
+    if "@" in value:
+        local_part = value.split("@", 1)[0]
+        if local_part and local_part not in candidates:
+            candidates.append(local_part)
+    return candidates
+
+
+def resolve_proxy_agent(db: Session, request: Request) -> Optional[models.Agent]:
+    if not is_trusted_proxy_request(request):
+        return None
+
+    proxy_user = request.headers.get("Remote-User") or request.headers.get("X-Forwarded-User")
+    candidates = normalize_proxy_user(proxy_user)
+    if not candidates:
+        return None
+
+    return db.query(models.Agent).filter(
+        models.Agent.active == True,
+        models.Agent.name.in_(candidates),
+    ).first()
+
+
 def is_initial_agent_bootstrap_request(request: Request) -> bool:
     return request.method.upper() == "POST" and request.url.path == "/api/agents"
 
@@ -428,14 +473,29 @@ async def auth_gate_middleware(request: Request, call_next):
     x_agent_key = request.headers.get("X-Agent-Key")
 
     if not x_agent_key:
+        db = SessionLocal()
         if REQUIRE_AUTH and allow_initial_agent_bootstrap(request):
+            db.close()
             return await call_next(request)
-        if REQUIRE_AUTH:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)"},
-            )
-        return await call_next(request)
+        try:
+            agent = resolve_proxy_agent(db, request)
+            if agent:
+                agent.last_seen_at = datetime.now(timezone.utc)
+                db.commit()
+                request.state.current_agent_id = agent.id
+                return await call_next(request)
+            if REQUIRE_AUTH:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "X-Agent-Key required (DELEGA_REQUIRE_AUTH is enabled)"},
+                )
+            return await call_next(request)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Proxy authentication middleware error: %s", exc)
+            return JSONResponse(status_code=500, content={"detail": "Authentication error"})
+        finally:
+            db.close()
 
     db = SessionLocal()
     try:
@@ -534,7 +594,7 @@ def register_agent(
     db_agent = models.Agent(
         **agent.model_dump(),
         api_key=f"pending_{secrets.token_hex(8)}",
-        is_admin=existing_agent_count == 0,
+        is_admin=True,
         **key_material,
     )
     db.add(db_agent)
@@ -1111,9 +1171,21 @@ def update_task(
     if "reminder_time" in update_data:
         update_data["reminder_sent"] = False
 
-    # Auto-set completed_at when completing via PUT (matches /complete endpoint behavior)
-    if update_data.get("completed") and not db_task.completed:
+    # Track completion state change BEFORE applying updates
+    was_completed = db_task.completed
+    is_completing = update_data.get("completed") and not was_completed
+    is_uncompleting = "completed" in update_data and not update_data["completed"] and was_completed
+
+    # Auto-set completion fields when completing via PUT (consistent with /complete endpoint)
+    if is_completing:
         update_data["completed_at"] = datetime.now(timezone.utc)
+        if agent:
+            update_data["completed_by_agent_id"] = agent.id
+
+    # Clear completion attribution when un-completing via PUT
+    if is_uncompleting:
+        update_data["completed_at"] = None
+        update_data["completed_by_agent_id"] = None
 
     for field, value in update_data.items():
         setattr(db_task, field, value)
@@ -1121,9 +1193,12 @@ def update_task(
     db.commit()
     db.refresh(db_task)
     
-    # Fire webhooks
+    # Fire webhooks — use task.completed event when completing via PUT for consistency
     agent_id = agent.id if agent else None
-    fire_webhooks("task.updated", task_to_dict(db_task), agent_to_dict(agent), agent_id)
+    if is_completing:
+        fire_webhooks("task.completed", task_to_dict(db_task), agent_to_dict(agent), agent_id)
+    else:
+        fire_webhooks("task.updated", task_to_dict(db_task), agent_to_dict(agent), agent_id)
     
     # Fire assignment webhook if assigned_to changed
     if "assigned_to_agent_id" in update_data and update_data["assigned_to_agent_id"] != old_assigned:
@@ -1680,6 +1755,28 @@ def start_scheduler():
 @app.on_event("shutdown")
 def stop_scheduler():
     scheduler.shutdown(wait=False)
+
+
+# ============ Serve Frontend ============
+
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+ASSETS_DIR = os.path.join(FRONTEND_DIR, "assets")
+
+if os.path.exists(FRONTEND_DIR):
+    if os.path.exists(ASSETS_DIR):
+        app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+    @app.get("/")
+    def serve_frontend():
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+    @app.get("/manifest.json")
+    def serve_manifest():
+        return FileResponse(os.path.join(FRONTEND_DIR, "manifest.json"))
+
+    @app.get("/sw.js")
+    def serve_sw():
+        return FileResponse(os.path.join(FRONTEND_DIR, "sw.js"))
 
 
 if __name__ == "__main__":

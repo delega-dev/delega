@@ -125,6 +125,37 @@ class SecurityHardeningTests(BaseSecurityTestCase):
             self.assertEqual(response.status_code, 401, path)
             self.assertIn("X-Agent-Key", response.text)
 
+    def test_trusted_proxy_remote_user_maps_to_agent(self):
+        os.environ["API_TRUSTED_PROXY_IPS"] = "192.168.10.220,127.0.0.1"
+        db = self.database.SessionLocal()
+        agent_name = db.query(self.models.Agent).filter(self.models.Agent.id == self.agent_id).first().name
+        db.close()
+        proxy_client = TestClient(
+            self.main.app,
+            base_url="http://localhost",
+            client=("192.168.10.220", 50001),
+        )
+        try:
+            response = proxy_client.get("/api/tasks", headers={"Remote-User": agent_name})
+            self.assertEqual(response.status_code, 200)
+        finally:
+            proxy_client.close()
+            os.environ.pop("API_TRUSTED_PROXY_IPS", None)
+
+    def test_untrusted_proxy_identity_header_is_rejected(self):
+        os.environ["API_TRUSTED_PROXY_IPS"] = "192.168.10.220"
+        untrusted_client = TestClient(
+            self.main.app,
+            base_url="http://localhost",
+            client=("192.168.10.221", 50002),
+        )
+        try:
+            response = untrusted_client.get("/api/tasks", headers={"Remote-User": "agent"})
+            self.assertEqual(response.status_code, 401)
+        finally:
+            untrusted_client.close()
+            os.environ.pop("API_TRUSTED_PROXY_IPS", None)
+
     def test_loopback_can_bootstrap_first_agent_without_key(self):
         db = self.database.SessionLocal()
         db.query(self.models.Agent).delete()
