@@ -42,6 +42,12 @@ CORS_ORIGINS = [
     if o.strip()
 ]
 
+
+def trusted_proxy_ips() -> set[str]:
+    raw = os.environ.get("API_TRUSTED_PROXY_IPS", "")
+    return {term.strip() for term in raw.split(",") if term.strip()}
+
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import engine, get_db, SessionLocal, Base
@@ -275,6 +281,40 @@ def require_localhost_target(request: Request, detail: str) -> None:
     raise HTTPException(status_code=403, detail=detail)
 
 
+def is_trusted_proxy_request(request: Request) -> bool:
+    client_host = request.client.host if request.client else ""
+    if not client_host:
+        return False
+    return client_host in trusted_proxy_ips()
+
+
+def normalize_proxy_user(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+    value = raw_value.strip().lower()
+    if not value:
+        return []
+    candidates = [value]
+    if "@" in value:
+        local_part = value.split("@", 1)[0]
+        if local_part and local_part not in candidates:
+            candidates.append(local_part)
+    return candidates
+
+
+def resolve_proxy_agent(db: Session, request: Request) -> Optional[models.Agent]:
+    if not is_trusted_proxy_request(request):
+        return None
+    proxy_user = request.headers.get("Remote-User") or request.headers.get("X-Forwarded-User")
+    candidates = normalize_proxy_user(proxy_user)
+    if not candidates:
+        return None
+    return db.query(models.Agent).filter(
+        models.Agent.active == True,
+        models.Agent.name.in_(candidates),
+    ).first()
+
+
 def is_initial_agent_bootstrap_request(request: Request) -> bool:
     return request.method.upper() == "POST" and request.url.path == "/api/agents"
 
@@ -499,6 +539,19 @@ async def auth_gate_middleware(request: Request, call_next):
     if not x_agent_key:
         if REQUIRE_AUTH and allow_initial_agent_bootstrap(request):
             return await call_next(request)
+        db = SessionLocal()
+        try:
+            agent = resolve_proxy_agent(db, request)
+            if agent:
+                agent.last_seen_at = datetime.now(timezone.utc)
+                db.commit()
+                request.state.current_agent_id = agent.id
+                return await call_next(request)
+        except Exception as exc:
+            db.rollback()
+            logger.error("Trusted-proxy resolution error: %s", exc)
+        finally:
+            db.close()
         if REQUIRE_AUTH:
             return JSONResponse(
                 status_code=401,
