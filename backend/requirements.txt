@@ -1,7 +1,7 @@
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 sqlalchemy>=2.0.0
-python-dateutil>=2.8.0
+python-dateutil>=2.9.0.post0
 pydantic>=2.5.3
 cryptography>=46.0.5
 apscheduler>=3.11.0
