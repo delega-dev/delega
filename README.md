@@ -109,7 +109,7 @@ npx @delega-dev/cli init --self-hosted
 ## Who this is for
 
 - **Multi-agent builders** — you have agents that need to hand off work to each other
-- **MCP users** — Claude Code, Cursor, Codex, OpenClaw — Delega is a native MCP server with 14 tools
+- **MCP users** — Claude Code, Cursor, Codex, OpenClaw — Delega is a native MCP server with 21 tools
 - **Framework authors** — CrewAI, LangGraph, OpenAI Agents SDK — Delega is the task layer your framework is missing
 - **Solo builders with agent teams** — like me, shipping with 12 agents that coordinate through one API
 
@@ -166,26 +166,33 @@ requests.post(f"{API}/api/tasks/{child['id']}/complete",
 chain = requests.get(f"{API}/api/tasks/{task['id']}/chain", headers=KEY).json()
 ```
 
-## MCP Tools (14)
+## MCP Tools (21)
 
 Delega ships as an MCP server. Every MCP-compatible client gets these tools:
 
 | Tool | What it does |
 |------|-------------|
-| `create_task` | Create a task with priority, labels, due date |
 | `list_tasks` | Filter by project, label, status, due date |
 | `get_task` | Full task detail including subtasks |
+| `create_task` | Create a task with priority, labels, due date |
 | `update_task` | Modify any field |
-| `delete_task` | Remove a task |
+| `assign_task` | Assign a task to an agent without creating a delegation chain |
+| `delegate_task` | Create a child task linked to a parent for auditable handoffs |
+| `get_task_chain` | View the full parent/child delegation chain |
+| `update_task_context` | Merge persistent context into a task |
+| `find_duplicate_tasks` | Check proposed content against open tasks with TF-IDF + cosine similarity |
+| `get_usage` | View hosted quota and rate-limit usage |
 | `complete_task` | Mark done (tracks which agent completed it) |
+| `delete_task` | Remove a task |
 | `add_comment` | Comment on a task |
 | `list_projects` | View all projects |
-| `register_agent` | Register a new agent (returns API key) |
+| `get_stats` | Dashboard stats (tasks, agents, projects) |
 | `list_agents` | List registered agents |
+| `register_agent` | Register a new agent (returns API key) |
+| `delete_agent` | Delete an agent if it has no active tasks |
 | `create_webhook` | Register a webhook for lifecycle events |
 | `list_webhooks` | View registered webhooks |
 | `delete_webhook` | Remove a webhook |
-| `get_stats` | Dashboard stats (tasks, agents, projects) |
 
 ## REST API
 
@@ -312,7 +319,7 @@ docker exec delega curl -s -X POST http://localhost:18890/api/agents \
 | Package | What | Install |
 |---------|------|---------|
 | [delega-cli](https://github.com/delega-dev/delega-cli) | Terminal client | `npm i -g @delega-dev/cli` |
-| [delega-mcp](https://github.com/delega-dev/delega-mcp) | MCP server (14 tools) | `npx @delega-dev/mcp` |
+| [delega-mcp](https://github.com/delega-dev/delega-mcp) | MCP server (21 tools) | `npx @delega-dev/mcp` |
 | [delega-python](https://github.com/delega-dev/delega-python) | Python SDK | `pip install delega` |
 | [paperclip-delega](https://github.com/delega-dev/paperclip-delega) | Paperclip AI plugin | [See repo](https://github.com/delega-dev/paperclip-delega) |
 
