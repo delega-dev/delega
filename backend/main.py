@@ -711,16 +711,17 @@ def update_agent(
     current_agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Update agent details."""
-    require_authenticated_agent(current_agent)
-    is_self = current_agent.id == agent_id
-    if not is_self:
+    current = require_authenticated_agent(current_agent)
+    open_mode_admin = current is None and not REQUIRE_AUTH
+    is_self = current is not None and current.id == agent_id
+    if not open_mode_admin and not is_self:
         require_admin_agent(current_agent, "Only admin agent keys can edit other agents")
     agent = db.query(models.Agent).filter(models.Agent.id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     
     update_data = update.model_dump(exclude_unset=True)
-    if is_self and not current_agent.is_admin:
+    if is_self and current is not None and not current.is_admin:
         protected_fields = {"name", "permissions", "is_admin", "active"} & set(update_data)
         if protected_fields:
             raise HTTPException(

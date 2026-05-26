@@ -151,6 +151,34 @@ def test_sqlite_foreign_keys_are_enforced(fresh_db):
     db.close()
 
 
+def test_open_mode_can_update_agent_without_key(fresh_db, client, monkeypatch):
+    monkeypatch.setattr(main, "REQUIRE_AUTH", False)
+    agent_id, _ = make_agent(fresh_db, "worker")
+
+    response = client.put(
+        f"/api/agents/{agent_id}",
+        json={"display_name": "Open Mode Worker"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == agent_id
+    assert body["display_name"] == "Open Mode Worker"
+
+
+def test_update_missing_agent_returns_404(fresh_db, client):
+    _, admin_key = make_agent(fresh_db, "admin", is_admin=True)
+
+    response = client.put(
+        "/api/agents/9999",
+        json={"display_name": "Missing"},
+        headers=auth(admin_key),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Agent not found"
+
+
 def test_concurrent_initial_bootstrap_creates_one_admin(fresh_db):
     def create_agent(name: str):
         local_client = TestClient(app, base_url="http://localhost")
