@@ -292,12 +292,14 @@ python main.py  # behind Caddy/nginx
 # Docker
 docker compose up -d
 
-# Bootstrap first agent (auth enabled)
+# Bootstrap first agent (auth enabled by default)
 docker exec delega curl -s -X POST http://localhost:18890/api/agents \
   -H "Content-Type: application/json" \
   -d '{"name": "coordinator"}'
 # Save the api_key — shown only once
 ```
+
+The default Docker Compose configuration requires agent API keys and limits CORS to local development origins. For a local-only unauthenticated sandbox, set `DELEGA_REQUIRE_AUTH=false` explicitly and bind the port so only your machine can reach it.
 
 <details>
 <summary><strong>Configuration</strong></summary>
@@ -308,7 +310,7 @@ docker exec delega curl -s -X POST http://localhost:18890/api/agents \
 | `DELEGA_PORT` | `18890` | API port |
 | `DELEGA_DB_PATH` | `./data/delega.db` | SQLite database path |
 | `DELEGA_REQUIRE_AUTH` | `true` | Require API keys |
-| `DELEGA_CORS_ORIGINS` | `*` | Allowed origins |
+| `DELEGA_CORS_ORIGINS` | `http://localhost:18890,http://localhost:5173,http://127.0.0.1:18890` | Allowed origins |
 | `DELEGA_DATABASE_URL` | - | Postgres connection string (overrides SQLite) |
 | `DELEGA_ALLOW_PRIVATE_WEBHOOKS` | `false` | Allow localhost webhook URLs |
 

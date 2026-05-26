@@ -16,7 +16,6 @@ Usage:
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
-from typing import Optional
 
 
 def normalize_text(text: str) -> str:
@@ -47,36 +46,58 @@ def find_similar_tasks(
     Returns:
         List of dicts: [{"task_id": int, "content": str, "score": float}]
     """
+    if threshold < 0.0 or threshold > 1.0:
+        raise ValueError("threshold must be between 0 and 1")
     if not existing_tasks or not new_content.strip():
         return []
     
     new_normalized = normalize_text(new_content)
+    if not new_normalized:
+        return []
     existing_texts = [normalize_text(t.content) for t in existing_tasks]
+
+    results = []
+    fuzzy_tasks = []
+    fuzzy_texts = []
+    for task, text in zip(existing_tasks, existing_texts):
+        if text and text == new_normalized:
+            results.append({
+                "task_id": task.id,
+                "content": task.content,
+                "score": 1.0,
+            })
+        else:
+            fuzzy_tasks.append(task)
+            fuzzy_texts.append(text)
+
+    if not fuzzy_tasks:
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:max_results]
     
     # Combine for TF-IDF fitting
-    all_texts = [new_normalized] + existing_texts
+    all_texts = [new_normalized] + fuzzy_texts
     
     try:
         vectorizer = TfidfVectorizer(
             stop_words='english',
             ngram_range=(1, 2),  # Unigrams + bigrams for better matching
             min_df=1,
-            max_df=0.95,
+            max_df=1.0,
         )
         tfidf_matrix = vectorizer.fit_transform(all_texts)
     except ValueError:
         # All docs are empty after preprocessing
-        return []
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:max_results]
     
     # Compare new task (index 0) against all existing (index 1+)
     similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])[0]
     
-    results = []
     for i, score in enumerate(similarities):
         if score >= threshold:
             results.append({
-                "task_id": existing_tasks[i].id,
-                "content": existing_tasks[i].content,
+                "task_id": fuzzy_tasks[i].id,
+                "content": fuzzy_tasks[i].content,
                 "score": round(float(score), 3),
             })
     

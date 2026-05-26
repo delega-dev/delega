@@ -10,7 +10,6 @@ Adds:
 Safe to run multiple times — checks for table/column existence first.
 """
 import sqlite3
-import sys
 import os
 
 

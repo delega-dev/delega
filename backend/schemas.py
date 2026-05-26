@@ -342,7 +342,7 @@ class DedupMatch(BaseModel):
 
 class DedupCheck(BaseModel):
     content: str
-    threshold: Optional[float] = 0.6  # Minimum similarity score
+    threshold: float = Field(0.6, ge=0.0, le=1.0)  # Minimum similarity score
 
 
 class DedupResult(BaseModel):

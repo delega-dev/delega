@@ -20,15 +20,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["DELEGA_REQUIRE_AUTH"] = "true"
 os.environ["DELEGA_DB_PATH"] = ":memory:"
 
-import tempfile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 import main
 import models
-import database
 from main import app, get_db, derive_key_lookup, derive_key_hash
 
 

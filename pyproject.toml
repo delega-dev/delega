@@ -1,0 +1,7 @@
+[tool.ruff.lint]
+ignore = [
+    # SQLAlchemy expression comparisons intentionally use == True/False.
+    "E712",
+    # main.py sets env-driven config before importing app modules with side effects.
+    "E402",
+]

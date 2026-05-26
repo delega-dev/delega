@@ -1,7 +1,7 @@
 """Delega API server.
 Task infrastructure for AI agents.
 """
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from collections import defaultdict
@@ -34,6 +34,7 @@ def env_flag(name: str, default: bool) -> bool:
 
 
 REQUIRE_AUTH = env_flag("DELEGA_REQUIRE_AUTH", True)
+ALLOW_PRIVATE_WEBHOOKS = env_flag("DELEGA_ALLOW_PRIVATE_WEBHOOKS", False)
 MAX_JSON_BODY_BYTES = int(os.environ.get("DELEGA_MAX_BODY_BYTES", "65536"))
 KEY_DERIVE_ITERATIONS = int(os.environ.get("DELEGA_KEY_DERIVE_ITERATIONS", "100000"))
 CORS_ORIGINS = [
@@ -98,6 +99,7 @@ _rate_limiter = _RateLimiter()
 
 # Limits: reads 60/min, writes 30/min
 _LIMITS = {"read": 60, "write": 30}
+_bootstrap_lock = threading.Lock()
 
 
 def validate_webhook_url(url: str) -> Optional[str]:
@@ -117,17 +119,21 @@ def validate_webhook_url(url: str) -> Optional[str]:
     if not host:
         return "Webhook URL must include a host"
 
-    if (
-        host == "localhost"
-        or host.endswith(".local")
-        or host.endswith(".internal")
-        or host.endswith(".home.arpa")
-        or host.endswith(".cluster.local")
-        or host == "metadata.google.internal"
-    ):
-        return "Webhook URL cannot point to internal addresses"
+    if not ALLOW_PRIVATE_WEBHOOKS:
+        if (
+            host == "localhost"
+            or host.endswith(".local")
+            or host.endswith(".internal")
+            or host.endswith(".home.arpa")
+            or host.endswith(".cluster.local")
+            or host == "metadata.google.internal"
+        ):
+            return "Webhook URL cannot point to internal addresses"
 
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return "Webhook URL has an invalid port"
 
     try:
         resolved = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
@@ -146,14 +152,7 @@ def validate_webhook_url(url: str) -> Optional[str]:
         if ip in seen:
             continue
         seen.add(ip)
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
+        if not ALLOW_PRIVATE_WEBHOOKS and not ip.is_global:
             return "Webhook URL cannot point to internal addresses"
 
     return None
@@ -656,28 +655,29 @@ def register_agent(
     current_agent: Optional[models.Agent] = Depends(get_current_agent),
 ):
     """Register a new agent. Returns the agent with its API key (shown only once at creation)."""
-    existing_agent_count = db.query(models.Agent).count()
-    is_bootstrap_agent = existing_agent_count == 0
-    if existing_agent_count > 0:
-        require_admin_agent(current_agent, "Only admin agent keys can create agents")
-    # Check for duplicate name
-    existing = db.query(models.Agent).filter(models.Agent.name == agent.name).first()
-    if existing:
-        raise HTTPException(status_code=409, detail=f"Agent '{agent.name}' already exists")
-    
-    api_key = generate_agent_api_key()
-    key_material = create_agent_key_material(api_key)
-    agent_data = agent.model_dump()
-    requested_admin = agent_data.pop("is_admin", False)
-    db_agent = models.Agent(
-        **agent_data,
-        api_key=f"pending_{secrets.token_hex(8)}",
-        is_admin=True if is_bootstrap_agent else requested_admin,
-        **key_material,
-    )
-    db.add(db_agent)
-    db.commit()
-    db.refresh(db_agent)
+    with _bootstrap_lock:
+        existing_agent_count = db.query(models.Agent).count()
+        is_bootstrap_agent = existing_agent_count == 0
+        if existing_agent_count > 0:
+            require_admin_agent(current_agent, "Only admin agent keys can create agents")
+        # Check for duplicate name
+        existing = db.query(models.Agent).filter(models.Agent.name == agent.name).first()
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Agent '{agent.name}' already exists")
+
+        api_key = generate_agent_api_key()
+        key_material = create_agent_key_material(api_key)
+        agent_data = agent.model_dump()
+        requested_admin = agent_data.pop("is_admin", False)
+        db_agent = models.Agent(
+            **agent_data,
+            api_key=f"pending_{secrets.token_hex(8)}",
+            is_admin=True if is_bootstrap_agent else requested_admin,
+            **key_material,
+        )
+        db.add(db_agent)
+        db.commit()
+        db.refresh(db_agent)
     db_agent.api_key = api_key
     return db_agent
 
@@ -1420,7 +1420,7 @@ def check_duplicates(
     matches = find_similar_tasks(
         new_content=body.content,
         existing_tasks=open_tasks,
-        threshold=body.threshold or 0.6,
+        threshold=body.threshold,
     )
     
     return schemas.DedupResult(

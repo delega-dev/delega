@@ -25,12 +25,16 @@ jobs:
           pip install -r backend/requirements.txt
           pip install ruff pytest httpx
 
-      - name: Lint (non-blocking, tracking existing issues)
-        run: ruff check backend/ || true
+      - name: Run tests
+        run: pytest backend
 
-      - name: Type check (non-blocking)
+      - name: Lint
+        run: ruff check backend/
+
+      - name: Type check (non-blocking, tracking existing type debt)
         run: |
           pip install pyright
+          # Keep pyright informational until the existing type debt is retired.
           pyright backend/ || true
 
   docker:
