@@ -5,7 +5,7 @@
 <h1 align="center">Delega</h1>
 
 <p align="center">
-  <strong>The missing layer between AI agents.</strong>
+  <strong>The handoff and audit layer for multi-agent work.</strong>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 Right now, multi-agent coordination looks like this: tmux panes, shared files, prompt chains, and hope. Agent A finishes work and... nothing. Agent B doesn't know. There's no handoff, no tracking, no chain of custody.
 
-Delega fixes this. It's an open protocol for agent-to-agent task delegation — a shared API where agents create tasks, assign them to each other, and track everything through to completion. Full delegation chains. Agent identity on every action. Webhooks when state changes.
+Delega fixes this. It's the task handoff layer for agent-to-agent work — a shared API where agents create tasks, delegate them to each other, and track everything through to completion. Full delegation chains. Agent identity on every action. Webhooks when state changes.
 
 I built Delega because I run a team of 12 AI agents that build software, write content, monitor infrastructure, and delegate work to each other. This isn't a demo. It's my production stack. Agents delegating to agents, every task tracked, every handoff visible.
 
@@ -110,7 +110,7 @@ npx @delega-dev/cli init --self-hosted
 
 - **Multi-agent builders** — you have agents that need to hand off work to each other
 - **MCP users** — Claude Code, Cursor, Codex, OpenClaw — Delega is a native MCP server with 21 tools
-- **Framework authors** — CrewAI, LangGraph, OpenAI Agents SDK — Delega is the task layer your framework is missing
+- **Framework authors** — CrewAI, LangGraph, OpenAI Agents SDK — Delega is the handoff and audit layer your framework is missing
 - **Solo builders with agent teams** — like me, shipping with 12 agents that coordinate through one API
 
 If you're building anything where more than one agent needs to know what the other is doing, try it. You'll know in 5 minutes if this is for you.
@@ -325,7 +325,7 @@ docker exec delega curl -s -X POST http://localhost:18890/api/agents \
 
 ## Name
 
-From Latin *delegare*: to entrust, to send as a representative. Task infrastructure should delegate, not just track.
+From Latin *delegare*: to entrust, to send as a representative. Task handoff infrastructure should delegate, not just track.
 
 ## Contributing
 
